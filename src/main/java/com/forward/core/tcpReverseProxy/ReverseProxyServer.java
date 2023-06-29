@@ -68,6 +68,6 @@ public class ReverseProxyServer {
         int targetPort = 8889;            // 目标服务器的端口号
 
         ReverseProxyServer server = new ReverseProxyServer(localPort, targetHost, targetPort);
-
+        server.start();
     }
 }

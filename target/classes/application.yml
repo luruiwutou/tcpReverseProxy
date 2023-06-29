@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: atmp-forward
+
+server:
+  port: 8005
+  servlet:
+    context-path: /forward
+
+forward:
+  netty:
+    server:
+      addresses: 127.0.0.1:19001,127.0.0.1:19002
+      ports:
+        - 19003
+        - 19004

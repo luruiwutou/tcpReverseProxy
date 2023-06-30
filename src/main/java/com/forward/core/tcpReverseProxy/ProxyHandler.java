@@ -12,7 +12,7 @@ import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 
 @Slf4j
@@ -25,51 +25,48 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private EventExecutorGroup executorGroup;
     //每一个目标服务器开了多少个channel的计数
     private Map<String, Integer> connectionCounts;
-    //这一台代理服务器需要转发的目的服务器ip、端口
-    private String[][] targetConnections={{"localhost","8881"},{"localhost", "8882"},{"localhost", "8883"}};
+    private ConcurrentLinkedDeque<Object> tempMsgQueue = new ConcurrentLinkedDeque<>();
 
-    public ProxyHandler(String targetHost, int targetPort) {
+    public ProxyHandler(String targetHost, int targetPort, Map<String, Integer> connectionCounts) {
         this.targetHost = targetHost;
         this.targetPort = targetPort;
+        this.connectionCounts = connectionCounts; // 使用线程安全的 ConcurrentHashMap
         this.workerGroup = new NioEventLoopGroup();
         this.executorGroup = new DefaultEventExecutorGroup(16);
         this.clientChannels = new DefaultChannelGroup(workerGroup.next());
-        this.connectionCounts = new ConcurrentHashMap<>(); // 使用线程安全的 ConcurrentHashMap
         connectToTarget();
     }
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
         clientChannels.add(ctx.channel());
-
     }
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
         if (targetChannel != null && targetChannel.isActive()) {
+            while (!tempMsgQueue.isEmpty()) {
+                executorGroup.submit(() -> targetChannel.writeAndFlush(tempMsgQueue.pop()));
+            }
+            log.info("Received from {} send to {}:{}", ctx.channel().remoteAddress().toString().replace("/", ""), targetHost, targetPort);
             executorGroup.submit(() -> targetChannel.writeAndFlush(msg));
-//            targetChannel.writeAndFlush(msg);
         } else {
             // Target channel is not active, handle accordingly (e.g., buffer the message)
+            if (tempMsgQueue.size() < 100)
+                tempMsgQueue.add(msg);
         }
     }
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        // 减少连接数
-        String targetServerId = targetHost + ":" + targetPort;
-        int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
-        if (connectionCount > 0) {
-            connectionCounts.put(targetServerId, connectionCount - 1);
-        }
         clientChannels.remove(ctx.channel());
-//        reconnectToTarget();
     }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         cause.printStackTrace();
         ctx.close();
+        clientChannels.close();
     }
 
     private void connectToTarget() {
@@ -88,6 +85,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                 String targetServerId = targetHost + ":" + targetPort;
                                 int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
                                 connectionCounts.put(targetServerId, connectionCount + 1);
+                                while (!tempMsgQueue.isEmpty()) {
+                                    executorGroup.submit(() -> targetChannel.writeAndFlush(tempMsgQueue.pop()));
+                                }
+
                             }
 
                             @Override
@@ -97,8 +98,13 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 //                                clientChannels.writeAndFlush(msg);
                                 // 转发消息到客户端
                                 // 将耗时操作委托给 executorGroup 处理
+                                if (clientChannels.isEmpty()) {
+                                    ctx.close();
+                                    return;
+                                }
                                 executorGroup.submit(() -> {
                                     // 转发消息到客户端
+                                    log.info("received from target server {}:{},return to {}", targetHost, targetPort, clientChannels.name());
                                     clientChannels.writeAndFlush(msg);
                                 });
                             }
@@ -111,13 +117,17 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                 if (connectionCount > 0) {
                                     connectionCounts.put(targetServerId, connectionCount - 1);
                                 }
+                                if (clientChannels.isEmpty()) {
+                                    return;
+                                }
                                 reconnectToTarget();
                             }
 
                             @Override
                             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
                                 cause.printStackTrace();
-                                clientChannels.close();
+                                ctx.close();
+                                reconnectToTarget();
                             }
                         });
                     }
@@ -126,9 +136,9 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         ChannelFuture future = bootstrap.connect(targetHost, targetPort);
         future.addListener((ChannelFutureListener) future1 -> {
             if (future1.isSuccess()) {
-                System.out.println("Connected to target: " + targetHost + ":" + targetPort);
+                log.info("Connected to target: {}:{} success", targetHost, targetPort);
             } else {
-                System.err.println("Failed to connect to target: " + targetHost + ":" + targetPort);
+                log.info("Failed to connect to target: {}:{}", targetHost, targetPort);
                 reconnectToTarget();
             }
         });
@@ -136,46 +146,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     private void reconnectToTarget() {
         workerGroup.schedule(this::connectToTarget, 5, TimeUnit.SECONDS);
-    }
-
-    //    private void forwardToClients(Object msg) {
-//        // 寻找连接数最少的目标服务器
-//        String targetServerId = null;
-//        int minConnectionCount = Integer.MAX_VALUE;
-//        for (Map.Entry<String, Integer> entry : connectionCounts.entrySet()) {
-//            if (entry.getValue() < minConnectionCount) {
-//                targetServerId = entry.getKey();
-//                minConnectionCount = entry.getValue();
-//            }
-//        }
-//
-//        // 转发消息给连接数最少的目标服务器的客户端
-//        if (targetServerId != null) {
-//            String finalTargetServerId = targetServerId;
-//            clientChannels.writeAndFlush(msg, channel -> {
-//                String channelId = channel.remoteAddress().toString();
-//                return channelId.contains(finalTargetServerId);
-//            }).addListener((ChannelGroupFutureListener) future -> {
-//                // Handle the response from the target server (e.g., log, process, etc.)
-//                log.info("转发了");
-//            });
-//        }
-//    }
-    private void setTarget() {
-        // 寻找连接数最少的目标服务器
-        String targetServerId = null;
-        int minConnectionCount = Integer.MAX_VALUE;
-        for (Map.Entry<String, Integer> entry : connectionCounts.entrySet()) {
-            if (entry.getValue() < minConnectionCount) {
-                targetServerId = entry.getKey();
-                minConnectionCount = entry.getValue();
-            }
-        }
-        if (targetServerId != null) {
-            String[] split = targetServerId.split(":");
-            targetHost = split[0];
-            targetPort = Integer.valueOf(split[1]);
-        }
     }
 
 

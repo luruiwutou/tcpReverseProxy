@@ -1,11 +1,14 @@
 spring:
   application:
     name: atmp-forward
+  profiles:
+    active: dev
 
 server:
   port: 8005
   servlet:
     context-path: /forward
+
 
 forward:
   netty:

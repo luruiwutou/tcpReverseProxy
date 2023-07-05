@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper">
+    <!-- 定义 ResultMap -->
+    <!--    <resultMap id="ProxyMappingResultMap" type="com.forward.core.tcpReverseProxy.entity.TcpProxyMapping">-->
+    <!--      <id property="local" column="local" />-->
+    <!--      <collection property="target" ofType="java.lang.String">-->
+    <!--        <result column="target" />-->
+    <!--      </collection>-->
+    <!--    </resultMap>-->
+    <!-- 定义 ResultMap -->
+    <sql id="basicColumnSql">
+        id,
+        conf_Key confKey,
+        conf_Val confVal,
+        conf_Desc confDesc
+    </sql>
+    <select id="findByConfKey" resultType="com.forward.core.tcpReverseProxy.entity.ProxyConfig">
+        select <include refid="basicColumnSql"/> from gateway.proxy_config
+        <where>
+            <if test="confKey != null and confKey != ''">
+                conf_key = #{confKey}
+            </if>
+        </where>
+        LIMIT 1
+    </select>
+</mapper>

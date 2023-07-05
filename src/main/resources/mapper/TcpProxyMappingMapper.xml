@@ -12,7 +12,8 @@
     <resultMap id="mappingWithTargetsResultMap" type="com.forward.core.tcpReverseProxy.entity.TcpProxyMapping">
         <result column="local_host" property="localHost"/>
         <result column="local_port" property="localPort"/>
-        <result column="targetConnections" property="targetConnections" typeHandler="com.forward.core.tcpReverseProxy.mybatis.StringListTypeHandler"/>
+        <result column="targetConnections" property="targetConnections"
+                typeHandler="com.forward.core.tcpReverseProxy.mybatis.StringListTypeHandler"/>
         <!--      <collection property="target" ofType="java.lang.String">-->
         <!--        <result column="target" />-->
         <!--      </collection>-->
@@ -20,17 +21,19 @@
 
     <!-- 使用 ResultMap 进行查询 -->
     <select id="selectMappingWithTargets" resultMap="mappingWithTargetsResultMap">
-
-
-
- 	 SELECT m.local_host,m.local_port, GROUP_CONCAT(CONCAT_WS(':', m.target_host, m.target_port)) AS targetConnections
+        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS(':', m.target_host, m.target_port)) AS targetConnections
         FROM tcp_proxy_mapping m
         <where>
-        <if test="env != null and env != ''">
-          m.env = #{env}
-        </if>
+            <trim prefixOverrides="AND">
+                <if test="env != null and env != ''">
+                    AND m.env = #{env}
+                </if>
+                <if test="localIp != null and localIp != ''">
+                    AND m.local_host = #{localIp}
+                </if>
+            </trim>
         </where>
-        GROUP BY m.local_host,m.local_port
+        GROUP BY m.local_host, m.local_port
     </select>
     <!-- 使用 ResultMap 进行查询 -->
     <!--    <select id="selectProxyMappings" resultMap="ProxyMappingResultMap">-->

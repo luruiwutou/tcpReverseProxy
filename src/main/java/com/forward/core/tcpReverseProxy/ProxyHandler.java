@@ -42,6 +42,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         targetProxyHandler.put(targetHost + ":" + targetPort, this);
     }
 
+
     @Override
     public void channelActive(ChannelHandlerContext ctx) {
         clientChannels.add(ctx.channel());
@@ -109,7 +110,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                 }
                                 executorGroup.submit(() -> {
                                     // 转发消息到客户端
-                                    log.info("received from target server {}:{},return to {}", targetHost, targetPort, clientChannels.name());
+                                    log.info("received from target server {}:{},return to {}", targetHost, targetPort, clientChannels.stream().findAny().get().remoteAddress());
                                     clientChannels.writeAndFlush(msg);
                                 });
                             }

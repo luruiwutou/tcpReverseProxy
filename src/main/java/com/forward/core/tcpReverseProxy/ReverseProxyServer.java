@@ -2,10 +2,7 @@ package com.forward.core.tcpReverseProxy;
 
 import com.alibaba.fastjson.JSON;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.Channel;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelInitializer;
-import io.netty.channel.EventLoopGroup;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -22,20 +19,21 @@ public class ReverseProxyServer {
     EventLoopGroup bossGroup = new NioEventLoopGroup();
     EventLoopGroup workerGroup = new NioEventLoopGroup();
     private Map<String, List<String>> hosts;
-    private Map<String, Boolean> hostStates;
+    // 存储端口与对应的Channel对象
+    private Map<String, Channel> serverChannels;
     private Map<String, Map<String, ProxyHandler>> targetProxyHandlerForHosts;
     //这一台代理服务需要转发的目的服务器ip、端口
 //    private String[][] targetConnections = {{"localhost", "8881"}, {"localhost", "8882"}, {"localhost", "8883"}};
 
 
     public ReverseProxyServer() {
-        this.hostStates = new ConcurrentHashMap<>();
+        this.serverChannels = new ConcurrentHashMap<>();
         this.targetProxyHandlerForHosts = new ConcurrentHashMap<>();
     }
 
     public ReverseProxyServer(Map<String, List<String>> hosts) {
         this.hosts = hosts;
-        this.hostStates = new ConcurrentHashMap();
+        this.serverChannels = new ConcurrentHashMap();
         this.targetProxyHandlerForHosts = new ConcurrentHashMap<>();
     }
 
@@ -49,22 +47,70 @@ public class ReverseProxyServer {
     public void start(ReverseProxyServer server, Map<String, List<String>> hosts) throws Exception {
         for (Map.Entry<String, List<String>> host : hosts.entrySet()) {
             Map<String, ProxyHandler> targetProxyHandler = new HashMap<>();
+            if (serverChannels.keySet().contains(host.getKey())) {
+                log.info("ports:{} has been Started", host.getKey());
+                continue;
+            }
             server.bootstrap(getTargetFunction(), targetProxyHandler).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
                 final Channel channel = future.channel();
-                hostStates.put(host.getKey(), true);
-                log.info("---Server is started and listening at---" + channel.localAddress());
+                log.info("---Server is started and listening at---{}----proxy target :{}" , channel.localAddress(),JSON.toJSONString(host.getValue()));
+                // 将Channel对象存储到serverChannels中
+                serverChannels.put(host.getKey(), channel);
             }).sync().await();
             targetProxyHandlerForHosts.put(host.getKey(), targetProxyHandler);
         }
     }
 
+    public void closeChannelConnects(String port) {
+        Map<String, ProxyHandler> targetProxyHandler = targetProxyHandlerForHosts.get(port);
+        if (targetProxyHandler != null) {
+            for (ProxyHandler proxyHandler : targetProxyHandler.values()) {
+                proxyHandler.shutdown();
+            }
+            targetProxyHandlerForHosts.remove(port);
+            log.info("---Server is stopped for port---" + port);
+        } else {
+            log.warn("---No server found for port---" + port);
+        }
+        stopServer(port);
+    }
+
+    /**
+     * 停止监听指定端口
+     *
+     * @param port
+     */
+    private void stopServer(String port) {
+        Channel serverChannel = serverChannels.get(port); // 获取对应端口的Channel对象
+        int portToStop = Integer.parseInt(port);
+        if (serverChannel != null) {
+            serverChannel.close().addListener((ChannelFutureListener) future -> {
+                if (future.isSuccess()) {
+                    // 关闭成功
+                    serverChannels.remove(portToStop); // 从Map中移除该端口的Channel对象
+                    log.info("Server stopped listening at port: " + portToStop);
+                } else {
+                    // 关闭失败
+                    Throwable cause = future.cause();
+                    log.error("Failed to stop server at port: " + portToStop, cause);
+                }
+            });
+        } else {
+            log.warn("No server channel found for port: " + portToStop);
+        }
+    }
+
     /**
      * 获取当前服务端口配置的代理目标
+     *
      * @return
      */
-   private Function<String, List<String>> getTargetFunction() {
-        log.info("--------------取targetHost{}------------------",JSON.toJSONString(hosts));
-        return (port) -> hosts.get(port);
+    private Function<String, List<String>> getTargetFunction() {
+        return (port) -> {
+            List<String>  targetHost= hosts.get(port);
+            log.info("--------------服务端口：{},监听服务为：{}------------------", port,JSON.toJSONString(targetHost));
+            return targetHost;
+        };
     }
 
     /**
@@ -209,6 +255,14 @@ public class ReverseProxyServer {
 
     public void setHosts(Map<String, List<String>> hosts) {
         this.hosts = hosts;
+    }
+
+    public Map<String, Channel> getServerChannels() {
+        return serverChannels;
+    }
+
+    public void setServerChannels(Map<String, Channel> serverChannels) {
+        this.serverChannels = serverChannels;
     }
 
     public static void main(String[] args) throws Exception {

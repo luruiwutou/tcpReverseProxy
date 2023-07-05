@@ -3,6 +3,7 @@ package com.forward.core.controller;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.netty.HsmSendClient;
 import com.forward.core.netty.HsmUtils;
+import com.forward.core.sftp.SftpExample;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
@@ -303,5 +304,10 @@ public class ForwardingController {
                 .setProxy(new HttpHost("10.6.28.10", 8080))
                 .setDefaultRequestConfig(RequestConfig.custom().setProxy(new HttpHost("10.6.28.10", 8080)).build())
                 .build();
+    }
+    @GetMapping("/sftp")
+    public ResponseEntity sftp(){
+        SftpExample.doConnect();
+        return ResponseEntity.ok("success");
     }
 }

@@ -8,11 +8,11 @@
         <version>2.7.9</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.forward</groupId>
-    <artifactId>core</artifactId>
+    <groupId>com.luruiwutou</groupId>
+    <artifactId>tcp-reverse-proxy</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>core</name>
-    <description>Demo project for Spring Boot</description>
+    <name>tcp-reverse-proxy</name>
+    <description>tcp-reverse-proxy</description>
     <properties>
         <java.version>1.8</java.version>
     </properties>
@@ -47,11 +47,11 @@
             <artifactId>netty-iso8583</artifactId>
             <version>0.2.2</version>
         </dependency>
-        <!--        <dependency>-->
-        <!--            <groupId>io.netty</groupId>-->
-        <!--            <artifactId>netty-all</artifactId>-->
-        <!--            <version>4.1.89.Final</version>-->
-        <!--        </dependency>-->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.89.Final</version>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-pool2</artifactId>
@@ -121,6 +121,11 @@
             <artifactId>jsch</artifactId>
             <version>0.1.54</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>1.18</version>
+        </dependency>
 
     </dependencies>
 
@@ -142,7 +147,7 @@
                 <filtering>false</filtering>
             </resource>
         </resources>
-        <finalName>atmp-cupy-forward</finalName>
+        <finalName>tcp-reverse-proxy</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

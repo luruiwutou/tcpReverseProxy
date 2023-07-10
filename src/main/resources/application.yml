@@ -1,8 +1,8 @@
 spring:
   application:
-    name: atmp-forward
+    name: tcp-proxy
   profiles:
-    active: dev
+    active: sit
 
 server:
   port: 8005

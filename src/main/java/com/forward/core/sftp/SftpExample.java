@@ -1,82 +1,68 @@
 package com.forward.core.sftp;
 
-import com.jcraft.jsch.*;
+import com.forward.core.sftp.utils.DateUtil;
+import com.forward.core.sftp.utils.SftpUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.*;
-import java.net.Proxy;
+import java.io.File;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class SftpExample {
+    Logger logger = LoggerFactory.getLogger(SftpExample.class);
 
-    public static void doConnect() {
-        String gatewayHost = "25.6.72.40";
-        String gatewayUsername = "root";
-        String privateKeyPath = "/root/.ssh/upi_id_rsa";
-        int gatewayPort = 22;
+    public void getUpiCompressFile() throws Exception {
+        String yesterdayStr = DateUtil.getYesterday("yyyyMMdd");
+        Date yesterdayDate = strToDate(yesterdayStr);
 
-        String targetHost = "203.184.81.98";
-        String targetUsername = "cybhk_t";
-        int targetPort = 9990;
+        Date todayDate = DateUtil.getNextDay(yesterdayDate);
+        String todayStr = dateToStr(todayDate);
 
-        JSch jsch = new JSch();
+        String path = "/datat/cybhk_t/0825210344/out";
+        String extractPath = "/home/support/atmp/cupyFile/";
+
+        File filePath = new File(extractPath);
+        if (!filePath.exists()) {
+            filePath.mkdir();
+        }
+        //yesterday 20200923 -> 200923
+        String dateSign = DateUtil.format(yesterdayDate, "yyMMdd");
+        String fileName = "IFD" + dateSign + "COMPRESS.tar.gz";
+
+        logger.info("准备下载对账文件:{}", fileName);
         try {
-            // 建立到网关服务器的SSH连接
-            Session gatewaySession = jsch.getSession(gatewayUsername, gatewayHost, gatewayPort);
-            gatewaySession.setConfig("StrictHostKeyChecking", "no");  // 忽略对网关服务器的Host Key验证
-            jsch.addIdentity(privateKeyPath);
-            gatewaySession.connect();
+            String host = "203.184.81.98";
+            String port = "9990";
 
-            // 创建Socks5代理Socket
-            Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress("localhost", gatewaySession.getPort()));
-            SocketFactory socketFactory = new ProxySocketFactory(proxy);
+            String username = "cybhk_t";
 
-            // 设置代理
-            Session targetSession = jsch.getSession(targetUsername, targetHost, targetPort);
-            targetSession.setSocketFactory(socketFactory);
-            targetSession.setConfig("StrictHostKeyChecking", "no");  // 忽略对外网SFTP服务器的Host Key验证
-            jsch.addIdentity(privateKeyPath);
-            targetSession.connect();
 
-            // 创建SFTP通道
-            ChannelSftp channelSftp = (ChannelSftp) targetSession.openChannel("sftp");
-            channelSftp.connect();
-
-            // 下载文件
-            String remoteFilePath = "/path/to/remote/file.txt";
-            String localFilePath = "/path/to/local/file.txt";
-            channelSftp.get(remoteFilePath, localFilePath);
-
-            // 关闭SFTP通道和会话
-            channelSftp.disconnect();
-            targetSession.disconnect();
-
-            // 关闭网关服务器的SSH连接
-            gatewaySession.disconnect();
-        } catch (JSchException | SftpException e) {
-            e.printStackTrace();
+            String priKey = "/root/.ssh/upi_id_rsa";
+            String passPhrase = "";
+            SftpUtil.getPriKeyChannelSftp(host, port, username, priKey, passPhrase);
+            SftpUtil.downloadCompress(path+File.separator+yesterdayStr, filePath+File.separator+fileName);
+        } catch (Exception e) {
+            logger.error("下载Cupy清算对账文件异常！errorMsg: ", e);
+            throw e;
+        } finally {
+            SftpUtil.release();
         }
+        logger.info("已读取到文件：{}", fileName);
     }
 
-    // 自定义ProxySocketFactory实现SocketFactory接口
-    static class ProxySocketFactory implements SocketFactory {
-        private final Proxy proxy;
-
-        ProxySocketFactory(Proxy proxy) {
-            this.proxy = proxy;
-        }
-
-        public Socket createSocket(String host, int port) throws IOException {
-            return new Socket(proxy);
-        }
-
-        public InputStream getInputStream(Socket socket) throws IOException {
-            return socket.getInputStream();
-        }
-
-        public OutputStream getOutputStream(Socket socket) throws IOException {
-            return socket.getOutputStream();
-        }
+    //String yyyyMMdd -> Date
+    private Date strToDate(String yyyyMMdd) throws ParseException {
+        SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd");
+        Date date = format.parse(yyyyMMdd);
+        return date;
     }
+
+    //Date yyyyMMdd -> String
+    private String dateToStr(Date date) throws ParseException {
+        SimpleDateFormat format = new SimpleDateFormat("yyyyMMdd");
+        return format.format(date);
+    }
+
 }

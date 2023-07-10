@@ -1,8 +1,10 @@
 package com.forward.core.tcpReverseProxy;
 
 import com.alibaba.fastjson.JSON;
+import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
+import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
@@ -21,10 +23,7 @@ public class ReverseProxyServer {
     private Map<String, List<String>> hosts;
     // 存储端口与对应的Channel对象
     private Map<String, Channel> serverChannels;
-    private Map<String, Map<String, ProxyHandler>> targetProxyHandlerForHosts;
-    //这一台代理服务需要转发的目的服务器ip、端口
-//    private String[][] targetConnections = {{"localhost", "8881"}, {"localhost", "8882"}, {"localhost", "8883"}};
-
+    private Map<String, Map<String, List<ProxyHandler>>> targetProxyHandlerForHosts;
 
     public ReverseProxyServer() {
         this.serverChannels = new ConcurrentHashMap<>();
@@ -46,14 +45,14 @@ public class ReverseProxyServer {
 
     public void start(ReverseProxyServer server, Map<String, List<String>> hosts) throws Exception {
         for (Map.Entry<String, List<String>> host : hosts.entrySet()) {
-            Map<String, ProxyHandler> targetProxyHandler = new HashMap<>();
+            Map<String, List<ProxyHandler>> targetProxyHandler = new HashMap<>();
             if (serverChannels.keySet().contains(host.getKey())) {
                 log.info("ports:{} has been Started", host.getKey());
                 continue;
             }
             server.bootstrap(getTargetFunction(), targetProxyHandler).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
                 final Channel channel = future.channel();
-                log.info("---Server is started and listening at---{}----proxy target :{}" , channel.localAddress(),JSON.toJSONString(host.getValue()));
+                log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
                 // 将Channel对象存储到serverChannels中
                 serverChannels.put(host.getKey(), channel);
             }).sync().await();
@@ -61,11 +60,21 @@ public class ReverseProxyServer {
         }
     }
 
+
     public void closeChannelConnects(String port) {
-        Map<String, ProxyHandler> targetProxyHandler = targetProxyHandlerForHosts.get(port);
+        Map<String, List<ProxyHandler>> targetProxyHandler = targetProxyHandlerForHosts.get(port);
         if (targetProxyHandler != null) {
-            for (ProxyHandler proxyHandler : targetProxyHandler.values()) {
-                proxyHandler.shutdown();
+            for (Map.Entry<String, List<ProxyHandler>> proxyHandlers : targetProxyHandler.entrySet()) {
+                if (CollectionUtils.isEmpty(proxyHandlers.getValue())) {
+                    continue;
+                }
+                while (true) {
+                    Iterator<ProxyHandler> iterator = proxyHandlers.getValue().iterator();
+                    if (!iterator.hasNext()) break;
+                    ProxyHandler next = iterator.next();
+                    iterator.remove();
+                    next.shutdown();
+                }
             }
             targetProxyHandlerForHosts.remove(port);
             log.info("---Server is stopped for port---" + port);
@@ -107,8 +116,8 @@ public class ReverseProxyServer {
      */
     private Function<String, List<String>> getTargetFunction() {
         return (port) -> {
-            List<String>  targetHost= hosts.get(port);
-            log.info("--------------服务端口：{},监听服务为：{}------------------", port,JSON.toJSONString(targetHost));
+            List<String> targetHost = hosts.get(port);
+            log.info("--------------服务端口：{},监听服务为：{}------------------", port, JSON.toJSONString(targetHost));
             return targetHost;
         };
     }
@@ -121,55 +130,22 @@ public class ReverseProxyServer {
      * @throws Exception
      */
     public void stopTargetServer(String hostPort, String targetHost) throws Exception {
-        Map<String, ProxyHandler> stringProxyHandlerMap = targetProxyHandlerForHosts.get(hostPort);
+        Map<String, List<ProxyHandler>> stringProxyHandlerMap = targetProxyHandlerForHosts.get(hostPort);
         if (CollectionUtils.isEmpty(stringProxyHandlerMap)) {
             return;
         }
-        ProxyHandler proxyHandler = stringProxyHandlerMap.get(targetHost);
-        if (proxyHandler == null) {
+        List<ProxyHandler> proxyHandlers = stringProxyHandlerMap.get(targetHost);
+        if (proxyHandlers == null) {
             return;
         }
-        proxyHandler.shutdown();
+        for (ProxyHandler proxyHandler : proxyHandlers) {
+            proxyHandler.shutdown();
+        }
         stringProxyHandlerMap.remove(targetHost);
     }
 
-    /**
-     * 关闭对转发目标客户端的连接
-     *
-     * @param hostPort
-     * @param targetHosts
-     * @throws Exception
-     */
-    public void stopTargetServer(String hostPort, List<String> targetHosts) throws Exception {
-        Map<String, ProxyHandler> stringProxyHandlerMap = targetProxyHandlerForHosts.get(hostPort);
-        if (CollectionUtils.isEmpty(stringProxyHandlerMap)) {
-            return;
-        }
-        for (String targetHost : targetHosts) {
-            ProxyHandler proxyHandler = stringProxyHandlerMap.get(targetHost);
-            if (proxyHandler != null) {
-                proxyHandler.shutdown();
-                stringProxyHandlerMap.remove(targetHost);
-            }
-        }
-    }
 
-    /**
-     * 切换对转发目标客户端的连接
-     *
-     * @param hostPort
-     * @param targetHost
-     * @throws Exception
-     */
-    public void switchTargetServer(String hostPort, String shutDownTargetHost, String targetHost) throws Exception {
-        ProxyHandler proxyHandler = targetProxyHandlerForHosts.get(hostPort).get(shutDownTargetHost);
-        proxyHandler.switchTargetServer(targetHost);
-        targetProxyHandlerForHosts.get(hostPort).remove(shutDownTargetHost);
-        targetProxyHandlerForHosts.get(hostPort).put(targetHost, proxyHandler);
-
-    }
-
-    private ServerBootstrap bootstrap(Function<String, List<String>> getConnections, Map<String, ProxyHandler> targetProxyHandler) throws Exception {
+    private ServerBootstrap bootstrap(Function<String, List<String>> getConnections, Map<String, List<ProxyHandler>> targetProxyHandler) throws Exception {
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)
@@ -178,6 +154,14 @@ public class ReverseProxyServer {
                     private int targetPort;
                     private Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
                     private List<String> targetConnections = new ArrayList<>();
+
+                    private String serverAddress;
+
+                    private String getAddress() {
+                        return targetHost + ":" + targetPort;
+                    }
+
+                    ChannelGroup clientChannels;
 
                     @Override
                     protected void initChannel(SocketChannel ch) {

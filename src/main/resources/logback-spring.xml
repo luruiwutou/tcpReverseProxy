@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+    <property resource="logback-spring.xml"/>
+    <property name="appName" value="tcp-reverse-proxy"/>
+    <property name="LOG_INFO_HOME" value="proxy_logback_info"/>
+    <property name="LOG_ERROR_HOME" value="proxy_logback_error"/>
+    <property name="LOG_HISTORY_HOME" value="proxy_logback_history"/>
+    <appender name="CONSOLE-LOG" class="ch.qos.logback.core.ConsoleAppender">
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            </pattern>
+        </layout>
+    </appender>
+    <!--获取比info级别高(包括info级别)但除error级别的日志-->
+    <appender name="INFO-LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_INFO_HOME}/${appName}.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>DENY</onMatch>
+            <onMismatch>ACCEPT</onMismatch>
+        </filter>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            </pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!--滚动策略-->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!--路径-->
+            <fileNamePattern>${LOG_HISTORY_HOME}/info/${appName}.%d{yyyy-MM-dd}.%i.log.zip</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <!-- maxFileSize:这是活动文件的大小，默认值是10MB，测试时可改成1KB看效果 -->
+                <maxFileSize>10MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+        </rollingPolicy>
+    </appender>
+    <appender name="ERROR-LOG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_ERROR_HOME}/info/${appName}.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <encoder>
+            <!--            <pattern>[%d{yyyy-MM-dd' 'HH:mm:ss.sss}] [%C] [%t] [%L] [%-5p] %m%n</pattern>-->
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            </pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <!--滚动策略-->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!--路径-->
+            <fileNamePattern>${LOG_HISTORY_HOME}/error/${appName}.%d{yyyy-MM-dd}.%i.log.zip</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+
+            <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <!-- maxFileSize:这是活动文件的大小，默认值是10MB，测试时可改成1KB看效果 -->
+                <maxFileSize>10MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+
+        </rollingPolicy>
+    </appender>
+
+    <root level="info">
+        <appender-ref ref="CONSOLE-LOG"/>
+        <appender-ref ref="INFO-LOG"/>
+        <appender-ref ref="ERROR-LOG"/>
+    </root>
+</configuration>

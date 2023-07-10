@@ -16,10 +16,11 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/test")
+@RequestMapping("/proxy")
 @Slf4j
 public class TcpProxyController {
     @Autowired
@@ -53,21 +54,20 @@ public class TcpProxyController {
     public void changeEnv(@PathVariable String env) throws Exception {
         Map<String, List<String>> emvHosts = getHostsByEmv(env);
         Map<String, List<String>> hosts = server.getHosts();
-        for (Map.Entry<String, List<String>> host : hosts.entrySet()) {
-            server.stopTargetServer(host.getKey(), host.getValue());
-        }
         List<String> needStartServerPort = emvHosts.keySet().stream().filter(hosts.keySet()::contains).collect(Collectors.toList());
         List<String> needStopServerPort = hosts.keySet().stream().filter(emvHosts.keySet()::contains).collect(Collectors.toList());
         Map<String, List<String>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        if (CollectionUtil.isNotEmpty(needStartServer)) {
-            server.start(server, needStartServer);
-        }
         if (CollectionUtil.isNotEmpty(needStopServerPort)) {
             for (String port : needStopServerPort) {
                 server.closeChannelConnects(port);
             }
+            server.setServerChannels(new ConcurrentHashMap<>());
+        }
+        if (CollectionUtil.isNotEmpty(needStartServer)) {
+            server.start(server, needStartServer);
         }
         server.setHosts(emvHosts);
+        ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
 
     }
 

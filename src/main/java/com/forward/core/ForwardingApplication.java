@@ -9,6 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 
 @SpringBootApplication(scanBasePackages = {"com.forward.core"})
 @MapperScan({"com.forward.core.tcpReverseProxy.mapper"})
@@ -22,7 +23,6 @@ public class ForwardingApplication {
     public RestTemplate restTemplate() {
         return new RestTemplate();
     }
-    @Autowired
-    private TcpProxyController tcpProxyController;
+
 
 }

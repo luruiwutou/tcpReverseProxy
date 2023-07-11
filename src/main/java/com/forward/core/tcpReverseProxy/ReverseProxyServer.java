@@ -1,5 +1,6 @@
 package com.forward.core.tcpReverseProxy;
 
+import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import io.netty.bootstrap.ServerBootstrap;
@@ -229,6 +230,11 @@ public class ReverseProxyServer {
 
 
     public void shutDown() {
+        if (CollectionUtil.isNotEmpty(hosts.keySet())) {
+            for (String port : hosts.keySet()) {
+               closeChannelConnects(port);
+            }
+        }
         bossGroup.shutdownGracefully();
         workerGroup.shutdownGracefully();
     }

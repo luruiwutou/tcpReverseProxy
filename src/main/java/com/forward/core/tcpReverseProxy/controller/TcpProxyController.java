@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
@@ -41,7 +42,10 @@ public class TcpProxyController {
             log.info("Tcp proxy started failed: {}" ,e.getMessage());
         }
     }
-
+    @PreDestroy
+    public void destroy() {
+        server.shutDown();
+    }
     @GetMapping("/start/{env}")
     public void start(@PathVariable String env) throws Exception {
         Map<String, List<String>> hosts = getHostsByEmv(env);

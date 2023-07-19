@@ -2,7 +2,7 @@ package com.forward.core.controller;
 
 import com.alibaba.fastjson.JSON;
 import com.forward.core.netty.HsmSendClient;
-import com.forward.core.netty.HsmUtils;
+import com.forward.core.tcpReverseProxy.utils.HsmUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;

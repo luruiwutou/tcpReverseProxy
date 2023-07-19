@@ -2,7 +2,7 @@ spring:
   application:
     name: tcp-proxy
   profiles:
-    active: sit
+    active: dev
 
 server:
   port: 8005

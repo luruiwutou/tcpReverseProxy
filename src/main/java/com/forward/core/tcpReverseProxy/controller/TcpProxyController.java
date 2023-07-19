@@ -6,9 +6,12 @@ import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.enums.ProxyConfigEnum;
 import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import com.forward.core.tcpReverseProxy.mapper.TcpProxyMappingMapper;
+import com.forward.core.tcpReverseProxy.redis.RedisService;
 import io.netty.channel.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
@@ -28,9 +31,23 @@ public class TcpProxyController {
     TcpProxyMappingMapper mappingMapper;
     @Autowired
     ProxyConfigMapper proxyConfigMapper;
+    @Autowired
+    RedisTemplate<String, Object> redisTemplateObj;
+    @Autowired
+    RedisService redisService;
 
+    @GetMapping("/testRedis")
+    public ResponseEntity testRedis() {
+        if (redisService.isRedisConnected()) {
+//            redisService.push("127.0.0.1:8885", "12345", "1234566");
+            redisService.getList("127.0.0.1:8885",1l);
+            return ResponseEntity.ok(redisTemplateObj.opsForValue().get("FWD-INST-ID-CODE"));
+        }
+        return ResponseEntity.ok("redis close");
+    }
 
     private ReverseProxyServer server;
+
     @PostConstruct
     public void init() {
         // 在应用加载完成后执行的初始化方法逻辑
@@ -39,13 +56,15 @@ public class TcpProxyController {
             start(ProxyConfigEnum.DEFAULT_ENV.getKeyVal(proxyConfigMapper));
         } catch (Exception e) {
             e.printStackTrace();
-            log.info("Tcp proxy started failed: {}" ,e.getMessage());
+            log.info("Tcp proxy started failed: {}", e.getMessage());
         }
     }
+
     @PreDestroy
     public void destroy() {
         server.shutDown();
     }
+
     @GetMapping("/start/{env}")
     public void start(@PathVariable String env) throws Exception {
         Map<String, List<String>> hosts = getHostsByEmv(env);
@@ -121,6 +140,6 @@ public class TcpProxyController {
 
     @GetMapping("/stopTarget")
     public void stopTarget() throws Exception {
-        server.stopTargetServer("9001", "localhost:8882");
+        server.stopTargetServer("9001", "localhost:9991");
     }
 }

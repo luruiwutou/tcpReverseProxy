@@ -13,9 +13,7 @@ public class ForwardingApplication {
 
     public static void main(String[] args) {
         // 设置资源泄露检测器的级别为 PARANOID
-        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.PARANOID);
-
-
+        ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.SIMPLE);
         SpringApplication.run(ForwardingApplication.class, args);
     }
 

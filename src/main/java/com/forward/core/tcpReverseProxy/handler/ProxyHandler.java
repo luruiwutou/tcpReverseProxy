@@ -117,8 +117,12 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     private void readMsgCache(String hostStr) {
         try {
-            log.info("read msg cache from redis ,send to {}", getTargetServerAddress());
-            LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> getRedisService().readMsgCache(hostStr, getReadConsumer()));
+            LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> {
+                Long listSize = getRedisService().getListSize(hostStr);
+                if (null == listSize || listSize == 0) return;
+                log.info("read msg cache from redis ,send to {}", getTargetServerAddress());
+                getRedisService().readMsgCache(hostStr, getReadConsumer());
+            });
         } catch (Exception e) {
             log.error("read cache error：", e);
         }
@@ -129,7 +133,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             if (msg instanceof ByteBuf) {
                 byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
                 ((ByteBuf) msg).readBytes(bytes);
-                log.info("Hex msg:{}", HexUtil.encodeHexStr(bytes));
+                log.info("send Hex msg:{}", HexUtil.encodeHexStr(bytes));
                 ((ByteBuf) msg).resetReaderIndex();
             }
             executorGroup.submit(() -> targetChannel.writeAndFlush(msg));

@@ -54,21 +54,28 @@ public class ReverseProxyServer {
                 log.info("ports:{} has been Started", host.getKey());
                 continue;
             }
-            server.bootstrap(getTargetFunction(), targetProxyHandler).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
-                final Channel channel = future.channel();
-                log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
-                // 将Channel对象存储到serverChannels中
-                serverChannels.put(host.getKey(), channel);
-            }).sync().await();
+            try {
+                server.bootstrap(getTargetFunction(), targetProxyHandler).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
+                    final Channel channel = future.channel();
+                    log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
+                    // 将Channel对象存储到serverChannels中
+                    serverChannels.put(host.getKey(), channel);
+                }).sync().await();
+            } catch (Exception e) {
+                log.info("port:{} start failed, error msg:{}", host.getKey(),e.getMessage());
+                log.error("full error info",e);
+            }
             targetProxyHandlerForHosts.put(host.getKey(), targetProxyHandler);
         }
     }
 
 
     public void closeChannelConnects(String port) {
+        stopServer(port);
         ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = targetProxyHandlerForHosts.get(port);
         if (CollectionUtils.isEmpty(targetProxyHandler)) {
             log.warn("---No server found for port---" + port);
+            return;
         }
         while (true) {
             Iterator<ProxyHandler> iterator = targetProxyHandler.iterator();
@@ -79,7 +86,6 @@ public class ReverseProxyServer {
         }
         targetProxyHandlerForHosts.remove(port);
         log.info("---Server is stopped for port---" + port);
-        stopServer(port);
     }
 
     /**
@@ -91,17 +97,22 @@ public class ReverseProxyServer {
         Channel serverChannel = serverChannels.get(port); // 获取对应端口的Channel对象
         int portToStop = Integer.parseInt(port);
         if (serverChannel != null) {
-            serverChannel.close().addListener((ChannelFutureListener) future -> {
-                if (future.isSuccess()) {
-                    // 关闭成功
-                    serverChannels.remove(portToStop); // 从Map中移除该端口的Channel对象
-                    log.info("Server stopped listening at port: " + portToStop);
-                } else {
-                    // 关闭失败
-                    Throwable cause = future.cause();
-                    log.error("Failed to stop server at port: " + portToStop, cause);
-                }
-            });
+            try {
+                serverChannel.close().addListener((ChannelFutureListener) future -> {
+                    if (future.isSuccess()) {
+                        // 关闭成功f
+                        serverChannels.remove(portToStop); // 从Map中移除该端口的Channel对象
+                        log.info("Server stopped listening at port: " + portToStop);
+                    } else {
+                        // 关闭失败
+                        Throwable cause = future.cause();
+                        log.error("Failed to stop server at port: " + portToStop, cause);
+                    }
+                }).sync();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+                log.error("同步关闭服务channel异常",e);
+            }
         } else {
             log.warn("No server channel found for port: " + portToStop);
         }

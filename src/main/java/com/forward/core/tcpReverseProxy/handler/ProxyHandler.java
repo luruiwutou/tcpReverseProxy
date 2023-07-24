@@ -133,7 +133,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             if (msg instanceof ByteBuf) {
                 byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
                 ((ByteBuf) msg).readBytes(bytes);
-                log.info("send Hex msg:{}", HexUtil.encodeHexStr(bytes));
+                log.info("send to target :{},Hex msg:{}",getTargetServerAddress(), HexUtil.encodeHexStr(bytes));
                 ((ByteBuf) msg).resetReaderIndex();
             }
             executorGroup.submit(() -> targetChannel.writeAndFlush(msg));
@@ -204,7 +204,12 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                         }
                         executorGroup.submit(() -> {
                             // 转发消息到客户端
-                            log.info("received from target server {}:{},return to {}", targetHost, targetPort, clientChannels.stream().findAny().get().remoteAddress());
+                            if (msg instanceof ByteBuf) {
+                                byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
+                                ((ByteBuf) msg).readBytes(bytes);
+                                ((ByteBuf) msg).resetReaderIndex();
+                                log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientChannels.stream().findAny().get().remoteAddress(),HexUtil.encodeHexStr(bytes));
+                            }
                             clientChannels.writeAndFlush(msg);
                         });
                     }
@@ -242,7 +247,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 reconnectTimeCount.set(1);
                 log.info("Connected to target: {} success", getTargetServerAddress());
             } else {
-                log.info("client :{} Failed to connect to target: {} ,try times: {}", getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount);
+                log.info("client :{} Failed to connect to target: {} ,try times: {}", clientChannels.isEmpty()?null:getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount);
                 reconnectToTarget();
             }
         });

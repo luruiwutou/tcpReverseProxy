@@ -11,9 +11,9 @@ public class HsmClientConfig {
     @Autowired
     private HsmClientProperties hsmClientProperties;
 
-    @Bean
-    public HsmSendClient hsmPoolClient() {
-        return new HsmSendClient(hsmClientProperties);
-    }
+//    @Bean
+//    public HsmSendClient hsmPoolClient() {
+//        return new HsmSendClient(hsmClientProperties);
+//    }
 
 }

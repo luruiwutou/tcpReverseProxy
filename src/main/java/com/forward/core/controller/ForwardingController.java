@@ -82,45 +82,45 @@ public class ForwardingController {
         return response;
     }
 
-    @Resource
-    protected HsmSendClient hsmClient;
-
-    @RequestMapping(value = "/hsm", method = RequestMethod.POST)
-    public ResponseEntity<String> forwardPostRequest(@RequestBody String hexMsg) throws InterruptedException {
-        log.info("do byte post start ");
-        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg.getBytes())), HttpStatus.OK);
-        return responseEntity;
-    }
-
-    @RequestMapping(value = "/hsm/bytes", method = RequestMethod.POST)
-    public ResponseEntity<String> forwardPostRequest(@RequestBody byte[] hexMsg) throws InterruptedException {
-        log.info("do byte post start ");
-        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg)), HttpStatus.OK);
-        return responseEntity;
-    }
+//    @Resource
+//    protected HsmSendClient hsmClient;
+//
+//    @RequestMapping(value = "/hsm", method = RequestMethod.POST)
+//    public ResponseEntity<String> forwardPostRequest(@RequestBody String hexMsg) throws InterruptedException {
+//        log.info("do byte post start ");
+//        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg.getBytes())), HttpStatus.OK);
+//        return responseEntity;
+//    }
+//
+//    @RequestMapping(value = "/hsm/bytes", method = RequestMethod.POST)
+//    public ResponseEntity<String> forwardPostRequest(@RequestBody byte[] hexMsg) throws InterruptedException {
+//        log.info("do byte post start ");
+//        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg)), HttpStatus.OK);
+//        return responseEntity;
+//    }
 
     /**
      * 发送byte消息
      *
      * @param data
      */
-    public String sendStringMsg(byte[] data) {
-        return HsmUtils.resolveResult(callHsmService(data));
-    }
+//    public String sendStringMsg(byte[] data) {
+//        return HsmUtils.resolveResult(callHsmService(data));
+//    }
 
 
-    private byte[] callHsmService(byte[] data) {
-        // 替换消息总长度
-        byte[] msg = HsmUtils.addHexLength(data, 2);
-        byte[] bytes;
-        try {
-            bytes = hsmClient.sendAndGet(msg);
-        } catch (Exception e) {
-            log.error("Call HSM Exception ! error:{}", e.getMessage(), e);
-            throw new RuntimeException("000000");
-        }
-        return bytes;
-    }
+//    private byte[] callHsmService(byte[] data) {
+//        // 替换消息总长度
+//        byte[] msg = HsmUtils.addHexLength(data, 2);
+//        byte[] bytes;
+//        try {
+//            bytes = hsmClient.sendAndGet(msg);
+//        } catch (Exception e) {
+//            log.error("Call HSM Exception ! error:{}", e.getMessage(), e);
+//            throw new RuntimeException("000000");
+//        }
+//        return bytes;
+//    }
 
     String targetUrl = "https://oapgwuatkchy.ftcwifi.com/auth/oauth/v2/token/";
     String contentTypeStr = "application/json";

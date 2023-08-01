@@ -15,13 +15,8 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.util.CollectionUtils;
 
 import java.net.SocketAddress;
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -72,7 +67,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     public void channelActive(ChannelHandlerContext ctx) {
         clientChannels.add(ctx.channel());
         if (targetChannel != null && targetChannel.isActive()) {
-            readMsgCache(getHostStr(ctx.channel().localAddress()));
+            readMsgCache(getHostStr(ctx.channel().localAddress()),targetChannel);
             log.info("Received from {} send to {}:{}", getHostStr(ctx.channel().remoteAddress()), targetHost, targetPort);
         } else {
             // Target channel is not active, handle accordingly (e.g., buffer the message)
@@ -90,10 +85,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         shouldReconnect = true;
         String hostStr = getHostStr(ctx.channel().localAddress());
         if (targetChannel != null && targetChannel.isActive()) {
-            getReadConsumer().accept(msg);
+            getReadConsumer(targetChannel).accept(msg);
 //            executorGroup.submit(() -> targetChannel.writeAndFlush(msg));
             log.info("Received from {} send to {}", getHostStr(ctx.channel().remoteAddress()), getTargetServerAddress());
-            readMsgCache(hostStr);
+            readMsgCache(hostStr,targetChannel);
         } else {
             // Target channel is not active, handle accordingly (e.g., buffer the message)
             Long listSize = getListSize(hostStr);
@@ -106,7 +101,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         try {
             return LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), () -> getRedisService().getListSize(hostStr));
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new Exception(e);
         }
     }
 
@@ -115,28 +110,28 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> getRedisService().writeMsgCache(hostStr, msg));
     }
 
-    private void readMsgCache(String hostStr) {
+    private void readMsgCache(String hostStr,Channel channel) {
         try {
             LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> {
                 Long listSize = getRedisService().getListSize(hostStr);
                 if (null == listSize || listSize == 0) return;
                 log.info("read msg cache from redis ,send to {}", getTargetServerAddress());
-                getRedisService().readMsgCache(hostStr, getReadConsumer());
+                getRedisService().readMsgCache(hostStr, getReadConsumer(channel));
             });
         } catch (Exception e) {
             log.error("read cache error：", e);
         }
     }
 
-    private Consumer getReadConsumer() {
+    private Consumer getReadConsumer(Channel channel) {
         return msg -> {
             if (msg instanceof ByteBuf) {
                 byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
                 ((ByteBuf) msg).readBytes(bytes);
-                log.info("send to target :{},Hex msg:{}",getTargetServerAddress(), HexUtil.encodeHexStr(bytes));
+                log.info("send to target :{},Hex msg:{}", getTargetServerAddress(), HexUtil.encodeHexStr(bytes));
                 ((ByteBuf) msg).resetReaderIndex();
             }
-            executorGroup.submit(() -> targetChannel.writeAndFlush(msg));
+            executorGroup.submit(() -> channel.writeAndFlush(msg));
         };
     }
 
@@ -151,6 +146,16 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     }
 
     @Override
+    public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+        if (ctx.channel().isWritable()) {
+            // 当缓冲区可写时，再次尝试写入数据
+//            writeMessage(channel);
+            readMsgCache(getTargetServerAddress(),ctx.channel());
+        }
+        super.channelWritabilityChanged(ctx);
+    }
+
+    @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         cause.printStackTrace();
         ctx.close();
@@ -161,13 +166,22 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     }
 
     public void connectToTarget() {
-        if (targetChannel != null && !targetChannel.isActive()) {
-            shouldReconnect = false;
-            targetChannel.close();
-            targetChannel = null;
+        try {
+            log.info("Lock connecting to target,lock key：{}",this.hashCode()+clientChannels.name());
+            LockUtils.executeWithLock(this.hashCode()+clientChannels.name(),(v)->{
+                if (targetChannel != null && !targetChannel.isActive()) {
+                    shouldReconnect = false;
+                    targetChannel.close();
+                    targetChannel = null;
+                }
+                //非连接池方式
+                initClientBootstrap();
+            });
+        } catch (Exception e) {
+            log.info("加锁执行失败，原因：{}",e);
         }
-        //非连接池方式
-        initClientBootstrap();
+
+
     }
 
 
@@ -188,7 +202,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                         if (clientChannels.isEmpty()) {
                             return;
                         }
-                        clientChannels.forEach(ch -> readMsgCache(getHostStr(ch.localAddress())));
+                        clientChannels.forEach(ch -> readMsgCache(getHostStr(ch.localAddress()),ctx.channel()));
                     }
 
                     @Override
@@ -202,15 +216,32 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                             ctx.close();
                             return;
                         }
+                        String clientAddress = getHostStr(clientChannels.stream().findAny().get().remoteAddress());
                         executorGroup.submit(() -> {
                             // 转发消息到客户端
                             if (msg instanceof ByteBuf) {
                                 byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
                                 ((ByteBuf) msg).readBytes(bytes);
                                 ((ByteBuf) msg).resetReaderIndex();
-                                log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientChannels.stream().findAny().get().remoteAddress(),HexUtil.encodeHexStr(bytes));
+                                log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientAddress, HexUtil.encodeHexStr(bytes));
                             }
-                            clientChannels.writeAndFlush(msg);
+                            if (clientChannels.stream().findAny().get().isActive()) {
+                                log.info("client channel {} is active", clientAddress);
+                            } else {
+                                log.info("client channel {} is not active", clientAddress);
+                            }
+                            log.info("client channel {} is writeable: {}",clientAddress, clientChannels.stream().findAny().get().isWritable());
+                            clientChannels.writeAndFlush(msg, (channel) -> {
+                                boolean active = channel.isWritable();
+                                if (!active) {
+                                    log.info("client channel {} is not writable", clientAddress);
+                                   if(getRedisService().isRedisConnected()){
+                                       log.info("write msg to redis ,channel id :{} ", channel.id().asLongText());
+                                       getRedisService().writeMsgCache(channel.id().asLongText(),msg);
+                                   }
+                                }
+                                return active;
+                            });
                         });
                     }
 
@@ -247,7 +278,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 reconnectTimeCount.set(1);
                 log.info("Connected to target: {} success", getTargetServerAddress());
             } else {
-                log.info("client :{} Failed to connect to target: {} ,try times: {}", clientChannels.isEmpty()?null:getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount);
+                log.info("client :{} Failed to connect to target: {} ,try times: {}", clientChannels.isEmpty() ? null : getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount);
                 reconnectToTarget();
             }
         });

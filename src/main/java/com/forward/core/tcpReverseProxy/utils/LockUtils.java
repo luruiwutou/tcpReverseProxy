@@ -63,7 +63,7 @@ public class LockUtils {
                 method.accept(null);
             } else {
                 // 获取锁失败，可以根据需要处理
-                log.info("=====Failed to acquire lock=====");
+                log.info("=====Failed to acquire lock, not allow execute=====");
                 throw new Exception("Failed to acquire lock");
             }
         } finally {

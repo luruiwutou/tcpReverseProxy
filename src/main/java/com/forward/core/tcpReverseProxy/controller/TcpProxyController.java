@@ -1,7 +1,10 @@
 package com.forward.core.tcpReverseProxy.controller;
 
 import cn.hutool.core.collection.CollectionUtil;
+import com.alibaba.fastjson.JSON;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.forward.core.tcpReverseProxy.ReverseProxyServer;
+import com.forward.core.tcpReverseProxy.entity.ProxyConfig;
 import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.enums.ProxyConfigEnum;
 import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
@@ -20,6 +23,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -36,11 +40,21 @@ public class TcpProxyController {
     @Autowired
     RedisService redisService;
 
+    @GetMapping("/query")
+    public ResponseEntity query() {
+        List<ProxyConfig> proxyConfigs = proxyConfigMapper.selectList(new QueryWrapper<ProxyConfig>().likeLeft("conf_key", "Test"));
+        return ResponseEntity.ok(proxyConfigs);
+    }
+    @GetMapping("/add")
+    public ResponseEntity add() {
+        int insert = proxyConfigMapper.insert(new ProxyConfig("Test" + new Random().nextInt(), "" + new Random().nextInt()));
+        return ResponseEntity.ok(insert);
+    }
     @GetMapping("/testRedis")
     public ResponseEntity testRedis() {
         if (redisService.isRedisConnected()) {
 //            redisService.push("127.0.0.1:8885", "12345", "1234566");
-            redisService.getList("127.0.0.1:8885",1l);
+            redisService.getList("127.0.0.1:8885", 1l);
             return ResponseEntity.ok(redisTemplateObj.opsForValue().get("FWD-INST-ID-CODE"));
         }
         return ResponseEntity.ok("redis close");
@@ -68,6 +82,10 @@ public class TcpProxyController {
     @GetMapping("/start/{env}")
     public void start(@PathVariable String env) throws Exception {
         Map<String, List<String>> hosts = getHostsByEmv(env);
+        if (CollectionUtil.isEmpty(hosts)) {
+            log.info("env has no configuration ,do nothing");
+            return;
+        }
         server = ReverseProxyServer.start(hosts);
         ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
 //        reverseProxyServer.bootstrap()
@@ -75,22 +93,29 @@ public class TcpProxyController {
 
     @GetMapping("/changeEnv/{env}")
     public void changeEnv(@PathVariable String env) throws Exception {
-        Map<String, List<String>> emvHosts = getHostsByEmv(env);
-        Map<String, List<String>> hosts = server.getHosts();
-        List<String> needStartServerPort = emvHosts.keySet().stream().filter(hosts.keySet()::contains).collect(Collectors.toList());
-        List<String> needStopServerPort = hosts.keySet().stream().filter(emvHosts.keySet()::contains).collect(Collectors.toList());
-        Map<String, List<String>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        if (CollectionUtil.isNotEmpty(needStopServerPort)) {
-            for (String port : needStopServerPort) {
-                server.closeChannelConnects(port);
+        log.info("Changing environment");
+        Long start = System.currentTimeMillis();
+        try {
+            Map<String, List<String>> emvHosts = getHostsByEmv(env);
+            Map<String, List<String>> hosts = server.getHosts();
+            if (CollectionUtil.isEmpty(emvHosts) && CollectionUtil.isEmpty(hosts)) return;
+            List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(hosts.keySet()::contains).collect(Collectors.toList());
+            List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(emvHosts.keySet()::contains).collect(Collectors.toList());
+            Map<String, List<String>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            if (CollectionUtil.isNotEmpty(needStopServerPort)) {
+                for (String port : needStopServerPort) {
+                    server.closeChannelConnects(port);
+                }
+                server.setServerChannels(new ConcurrentHashMap<>());
             }
-            server.setServerChannels(new ConcurrentHashMap<>());
+            if (CollectionUtil.isNotEmpty(needStartServer)) {
+                server.start(server, needStartServer);
+            }
+            server.setHosts(emvHosts);
+            ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
+        } finally {
+            log.info("Changing environment: {} cost {}", env, System.currentTimeMillis() - start);
         }
-        if (CollectionUtil.isNotEmpty(needStartServer)) {
-            server.start(server, needStartServer);
-        }
-        server.setHosts(emvHosts);
-        ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
 
     }
 
@@ -118,28 +143,39 @@ public class TcpProxyController {
 
     @PostMapping("/reload/{env}")
     public void reload(@PathVariable String env) throws Exception {
+        log.info("reloading env: {} start ", env);
+        Long start = System.currentTimeMillis();
         if (server == null) {
+            log.info("server is null ,start netty server");
             start(env);
         } else {
             if (env.equals(ProxyConfigEnum.RUNTIME_ENV.getKeyVal(proxyConfigMapper))) {
                 Map<String, List<String>> hostsByEmv = getHostsByEmv(env);
                 Map<String, Channel> serverChannels = server.getServerChannels();
+                if (CollectionUtil.isEmpty(hostsByEmv)) {
+                    for (String port : serverChannels.keySet()) {
+                        server.closeChannelConnects(port);
+                    }
+                    server.setHosts(new ConcurrentHashMap<>());
+                    return;
+                }
+                log.info("refresh {} config：{}", env, JSON.toJSONString(hostsByEmv));
                 Map<String, List<String>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !serverChannels.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-                server.start(server, needStartServer);
                 List<String> needStopServerPort = server.getHosts().keySet().stream().filter(port -> !hostsByEmv.keySet().contains(port)).collect(Collectors.toList());
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
                 }
+                server.start(server, needStartServer);
                 server.setHosts(hostsByEmv);
             } else {
                 changeEnv(env);
             }
         }
-
+        log.info("reloading env: {} cost {}", env, System.currentTimeMillis() - start);
     }
 
-    @GetMapping("/stopTarget")
-    public void stopTarget() throws Exception {
-        server.stopTargetServer("9001", "localhost:9991");
+    @GetMapping("/stopTarget/{hostPort}/{targetHost}")
+    public void stopTarget(@PathVariable String hostPort, @PathVariable String targetHost) throws Exception {
+        server.stopTargetServer(hostPort, targetHost);
     }
 }

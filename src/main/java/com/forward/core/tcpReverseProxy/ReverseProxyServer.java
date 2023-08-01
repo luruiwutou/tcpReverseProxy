@@ -48,6 +48,7 @@ public class ReverseProxyServer {
 
 
     public void start(ReverseProxyServer server, Map<String, List<String>> hosts) throws Exception {
+        log.info("start server channel :{}",JSON.toJSONString(hosts));
         for (Map.Entry<String, List<String>> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
             if (serverChannels.keySet().contains(host.getKey())) {
@@ -74,7 +75,7 @@ public class ReverseProxyServer {
         stopServer(port);
         ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = targetProxyHandlerForHosts.get(port);
         if (CollectionUtils.isEmpty(targetProxyHandler)) {
-            log.warn("---No server found for port---" + port);
+            log.info("---No target channel found for port---" + port);
             return;
         }
         while (true) {
@@ -187,7 +188,7 @@ public class ReverseProxyServer {
             }
 
             private Supplier<Integer> getReconnectTime() {
-                return () -> 2 * targetConnections.size();
+                return () -> 5 * targetConnections.size();
             }
 
             //判断是否能够建立有效连接

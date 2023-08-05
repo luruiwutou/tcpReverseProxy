@@ -7,6 +7,7 @@ import com.forward.core.tcpReverseProxy.ReverseProxyServer;
 import com.forward.core.tcpReverseProxy.entity.ProxyConfig;
 import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.enums.ProxyConfigEnum;
+import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import com.forward.core.tcpReverseProxy.mapper.TcpProxyMappingMapper;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
@@ -25,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
 @RestController
@@ -45,11 +47,13 @@ public class TcpProxyController {
         List<ProxyConfig> proxyConfigs = proxyConfigMapper.selectList(new QueryWrapper<ProxyConfig>().likeLeft("conf_key", "Test"));
         return ResponseEntity.ok(proxyConfigs);
     }
+
     @GetMapping("/add")
     public ResponseEntity add() {
         int insert = proxyConfigMapper.insert(new ProxyConfig("Test" + new Random().nextInt(), "" + new Random().nextInt()));
         return ResponseEntity.ok(insert);
     }
+
     @GetMapping("/testRedis")
     public ResponseEntity testRedis() {
         if (redisService.isRedisConnected()) {
@@ -81,7 +85,7 @@ public class TcpProxyController {
 
     @GetMapping("/start/{env}")
     public void start(@PathVariable String env) throws Exception {
-        Map<String, List<String>> hosts = getHostsByEmv(env);
+        Map<String, List<String[]>> hosts = getHostsByEmv(env);
         if (CollectionUtil.isEmpty(hosts)) {
             log.info("env has no configuration ,do nothing");
             return;
@@ -96,12 +100,12 @@ public class TcpProxyController {
         log.info("Changing environment");
         Long start = System.currentTimeMillis();
         try {
-            Map<String, List<String>> emvHosts = getHostsByEmv(env);
-            Map<String, List<String>> hosts = server.getHosts();
+            Map<String, List<String[]>> emvHosts = getHostsByEmv(env);
+            Map<String, List<String[]>> hosts = server.getHosts();
             if (CollectionUtil.isEmpty(emvHosts) && CollectionUtil.isEmpty(hosts)) return;
             List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(hosts.keySet()::contains).collect(Collectors.toList());
             List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(emvHosts.keySet()::contains).collect(Collectors.toList());
-            Map<String, List<String>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            Map<String, List<String[]>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             if (CollectionUtil.isNotEmpty(needStopServerPort)) {
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
@@ -129,7 +133,7 @@ public class TcpProxyController {
         }
     }
 
-    private Map<String, List<String>> getHostsByEmv(@PathVariable String env) throws UnknownHostException {
+    private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws UnknownHostException {
         InetAddress localHost = InetAddress.getLocalHost();
         String ipAddress = localHost.getHostAddress();
         List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress);
@@ -150,8 +154,9 @@ public class TcpProxyController {
             start(env);
         } else {
             if (env.equals(ProxyConfigEnum.RUNTIME_ENV.getKeyVal(proxyConfigMapper))) {
-                Map<String, List<String>> hostsByEmv = getHostsByEmv(env);
+                Map<String, List<String[]>> hostsByEmv = getHostsByEmv(env);
                 Map<String, Channel> serverChannels = server.getServerChannels();
+                Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts = server.getTargetProxyHandlerForHosts();
                 if (CollectionUtil.isEmpty(hostsByEmv)) {
                     for (String port : serverChannels.keySet()) {
                         server.closeChannelConnects(port);
@@ -160,13 +165,25 @@ public class TcpProxyController {
                     return;
                 }
                 log.info("refresh {} config：{}", env, JSON.toJSONString(hostsByEmv));
-                Map<String, List<String>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !serverChannels.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                //处理新启的服务端
+                Map<String, List<String[]>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !serverChannels.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
                 List<String> needStopServerPort = server.getHosts().keySet().stream().filter(port -> !hostsByEmv.keySet().contains(port)).collect(Collectors.toList());
+                //处理关闭的服务端
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
                 }
                 server.start(server, needStartServer);
                 server.setHosts(hostsByEmv);
+                //关闭非配置的目标服务
+                for (Map.Entry<String, List<String[]>> stringListEntry : hostsByEmv.entrySet()) {
+                    if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
+                        return;
+                    }
+                    //
+                    targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler ->
+                            !stringListEntry.getValue().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))
+                    ).forEach(ProxyHandler::initiativeReconnected);
+                }
             } else {
                 changeEnv(env);
             }

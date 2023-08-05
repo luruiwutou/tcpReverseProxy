@@ -15,11 +15,12 @@ public class TcpProxyMapping {
     private Integer id;
     private String localHost = "localhost";
     private String localPort;
+    private String localClientPort;
     private String targetHost;
     private String targetPort;
     private String env ="sit";
     @TableField(exist = false)
-    private List<String> targetConnections;
+    private List<String[]> targetConnections;
 
 
 }

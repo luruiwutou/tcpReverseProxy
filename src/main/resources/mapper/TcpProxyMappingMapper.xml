@@ -13,7 +13,7 @@
         <result column="local_host" property="localHost"/>
         <result column="local_port" property="localPort"/>
         <result column="targetConnections" property="targetConnections"
-                typeHandler="com.forward.core.tcpReverseProxy.mybatis.StringListTypeHandler"/>
+                typeHandler="com.forward.core.tcpReverseProxy.mybatis.StringArrayListTypeHandler"/>
         <!--      <collection property="target" ofType="java.lang.String">-->
         <!--        <result column="target" />-->
         <!--      </collection>-->
@@ -21,7 +21,7 @@
 
     <!-- 使用 ResultMap 进行查询 -->
     <select id="selectMappingWithTargets" resultMap="mappingWithTargetsResultMap">
-        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS(':', m.target_host, m.target_port)) AS targetConnections
+        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('-',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
         FROM tcp_proxy_mapping m
         <where>
             <trim prefixOverrides="AND">

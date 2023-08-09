@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.forward.core.tcpReverseProxy.ReverseProxyServer;
+import com.forward.core.tcpReverseProxy.constant.Constants;
 import com.forward.core.tcpReverseProxy.entity.ProxyConfig;
 import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.enums.ProxyConfigEnum;
@@ -11,6 +12,7 @@ import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import com.forward.core.tcpReverseProxy.mapper.TcpProxyMappingMapper;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
+import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import io.netty.channel.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -103,8 +105,8 @@ public class TcpProxyController {
             Map<String, List<String[]>> emvHosts = getHostsByEmv(env);
             Map<String, List<String[]>> hosts = server.getHosts();
             if (CollectionUtil.isEmpty(emvHosts) && CollectionUtil.isEmpty(hosts)) return;
-            List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(hosts.keySet()::contains).collect(Collectors.toList());
-            List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(emvHosts.keySet()::contains).collect(Collectors.toList());
+            List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(key->!hosts.keySet().contains(key)).collect(Collectors.toList());
+            List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(key->!emvHosts.keySet().contains(key)).collect(Collectors.toList());
             Map<String, List<String[]>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             if (CollectionUtil.isNotEmpty(needStopServerPort)) {
                 for (String port : needStopServerPort) {
@@ -147,6 +149,16 @@ public class TcpProxyController {
 
     @PostMapping("/reload/{env}")
     public void reload(@PathVariable String env) throws Exception {
+        LockUtils.executeWithLock(Constants.RELOAD_EMN_KEY,10l,v->{
+            try {
+                reloadSupplier(env);
+            } catch (Exception e) {
+                log.info("Failed to reload,exception: " , e);
+            }
+        });
+    }
+
+    private void reloadSupplier(String env) throws Exception {
         log.info("reloading env: {} start ", env);
         Long start = System.currentTimeMillis();
         if (server == null) {

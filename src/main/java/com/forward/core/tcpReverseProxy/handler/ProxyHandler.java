@@ -202,7 +202,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     public void initClientBootstrap() {
         Bootstrap bootstrap = new Bootstrap();
-        bootstrap.group(workerGroup).channel(NioSocketChannel.class).handler(new ChannelInitializer<Channel>() {
+        bootstrap.group(workerGroup).channel(NioSocketChannel.class)
+                .option(ChannelOption.TCP_NODELAY, true) // 设置 TCP_NODELAY 选项
+                .option(ChannelOption.SO_KEEPALIVE, true) // 设置 SO_KEEPALIVE 选项
+                .handler(new ChannelInitializer<Channel>() {
             @Override
             protected void initChannel(Channel ch) throws Exception {
                 ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
@@ -289,6 +292,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             } catch (Exception e) {
                 log.info("客户端绑定发送端口失败", e);
             }
+
         ChannelFuture future = bootstrap.connect(targetHost, targetPort);
 
         future.addListener((ChannelFutureListener) future1 -> {

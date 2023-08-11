@@ -30,12 +30,11 @@
 - 配置表中插入两条数据，一条是默认启动环境、一条是运行时环境
 
 ```mysql
-INSERT INTO `proxy_config` VALUES (1, 'DEFAULT_ENV', 'sit', '默认sit环境');
+INSERT INTO `proxy_config` VALUES (1, 'DEFAULT_ENV', 'sit', '默认环境');
 INSERT INTO `proxy_config` VALUES (2, 'RUNTIME_ENV', 'sit', '运行时环境');
 ```
 
-- 对`tcp_proxy_mapping`插入数据，示例及**说明**：
-
+- 对`tcp_proxy_mapping`插入数据，示例：
 ```mysql
 #在IP为10.6.xx.xx的服务器上开启端口为20112的netty服务，对所有发送到这个服务的TCP消息，指定使用8998端口向IP为25.xx.xx.40、端口为20115的服务发送消息
 INSERT INTO `tcp_proxy_mapping` VALUES (null, '10.6.xx.xx', '20112', '8998','25.xx.xx.40', '20115', 'sit')
@@ -43,3 +42,12 @@ INSERT INTO `tcp_proxy_mapping` VALUES (null, '10.6.xx.xx', '20112', '8998','25.
 INSERT INTO `tcp_proxy_mapping` VALUES (null, '10.6.xx.xx', '20113', '','25.xx.xx.40', '20115', 'sit');
 
 ```
+- `tcp_proxy_mapping`表中字段`local_client_port`**额外说明**:
+  - `local_client_port` = `具体端口` ：意味着指定使用此端口向目标服务器发送消息、当目标服务器断开此连接之后会自动重连
+  - `local_client_port` = `-` ：意味着使用随机端口向目标服务器发送消息，但是目标断开此连接后不会自动重连
+  - `local_client_port` = `''`|`null`:意味着使用随机端口向目标服务器发送消息，并会自动重连
+
+
+ 
+
+

@@ -3,6 +3,7 @@ package com.forward.core.tcpReverseProxy;
 import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.tcpReverseProxy.constant.Constants;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -169,18 +170,26 @@ public class ReverseProxyServer {
 
             @Override
             protected void initChannel(SocketChannel ch) {
-                remoteClientPort=String.valueOf(ch.localAddress().getPort());
+                remoteClientPort = String.valueOf(ch.localAddress().getPort());
                 boolean connectionFlag = setTarget();
                 if (!connectionFlag) {
                     ch.close();
                 }
                 log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
                 if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
-                    Optional<ProxyHandler> optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
-                    if (optionalProxyHandler.isPresent()) {
-                        ch.pipeline().addLast(optionalProxyHandler.get());
-                        return;
+                    if (StringUtil.isNotEmpty(localClientPort)) {
+                        Optional<ProxyHandler> optionalProxyHandler;
+                        if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
+                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler ->   getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
+                        } else {
+                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
+                        }
+                        if (optionalProxyHandler.isPresent()) {
+                            ch.pipeline().addLast(optionalProxyHandler.get());
+                            return;
+                        }
                     }
+
                 }
                 ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, targetProxyHandlers, getNewTarget(), getReconnectTime());
                 ch.pipeline().addLast(proxyHandler);
@@ -245,6 +254,9 @@ public class ReverseProxyServer {
                     targetPort = Integer.valueOf(split[1]);
                 }
                 return true;
+            }
+            public String getTargetServerAddress() {
+                return targetHost + ":" + targetPort;
             }
         });
         return bootstrap;

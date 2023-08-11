@@ -2,6 +2,7 @@ package com.forward.core.tcpReverseProxy.handler;
 
 import cn.hutool.core.util.HexUtil;
 import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.tcpReverseProxy.constant.Constants;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
@@ -77,7 +78,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         clientChannels.add(ctx.channel());
         if (targetChannel != null && targetChannel.isActive()) {
             readMsgCache(getHostStr(ctx.channel().localAddress()), targetChannel);
-            log.info("Received from {} send to {}:{}", getHostStr(ctx.channel().remoteAddress()), targetHost, targetPort);
+            log.info("Received from remote client {} send to {}", getHostStr(ctx.channel().remoteAddress()), getTargetServerAddress());
         } else {
             // Target channel is not active, handle accordingly (e.g., buffer the message)
             connectToTarget();
@@ -185,7 +186,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             log.info("Lock connecting to target,lock key：{}", this.hashCode() + clientChannels.name());
             LockUtils.executeWithLock(this.hashCode() + clientChannels.name(), (v) -> {
                 if (targetChannel != null && !targetChannel.isActive()) {
-                    targetChannel.close();
                     targetChannel = null;
                 }
                 //非连接池方式
@@ -206,87 +206,94 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 .option(ChannelOption.TCP_NODELAY, true) // 设置 TCP_NODELAY 选项
                 .option(ChannelOption.SO_KEEPALIVE, true) // 设置 SO_KEEPALIVE 选项
                 .handler(new ChannelInitializer<Channel>() {
-            @Override
-            protected void initChannel(Channel ch) throws Exception {
-                ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                     @Override
-                    public void channelActive(ChannelHandlerContext ctx) throws Exception {
-                        //当与转发目标服务器进行连接的时候，把当前附表的channel赋值给targetChannel
-                        targetChannel = ctx.channel();
-                        // 增加连接数
-                        String targetServerId = getTargetServerAddress();
-                        int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
-                        connectionCounts.put(targetServerId, connectionCount + 1);
-                        if (clientChannels.isEmpty()) {
-                            return;
-                        }
-                        clientChannels.forEach(ch -> readMsgCache(getHostStr(ch.localAddress()), ctx.channel()));
-                    }
+                    protected void initChannel(Channel ch) throws Exception {
+                        ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                            @Override
+                            public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                                //当与转发目标服务器进行连接的时候，把当前附表的channel赋值给targetChannel
+                                targetChannel = ctx.channel();
+                                // 增加连接数
+                                String targetServerId = getTargetServerAddress();
+                                int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
+                                connectionCounts.put(targetServerId, connectionCount + 1);
+                                if (clientChannels.isEmpty()) {
+                                    return;
+                                }
+                                clientChannels.forEach(ch -> readMsgCache(getHostStr(ch.localAddress()), ctx.channel()));
+                            }
 
-                    @Override
-                    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-                        // 将耗时操作委托给 executorGroup 处理
+                            @Override
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                                // 将耗时操作委托给 executorGroup 处理
 //                                executorGroup.submit(() -> clientChannels.writeAndFlush(msg));
 //                                clientChannels.writeAndFlush(msg);
-                        // 转发消息到客户端
-                        // 将耗时操作委托给 executorGroup 处理
-                        if (clientChannels.isEmpty()) {
-                            ctx.close();
-                            return;
-                        }
-                        List<Channel> collect = clientChannels.stream().filter(Channel::isWritable).collect(Collectors.toList());
-                        if (CollectionUtils.isEmpty(collect)) {
-                            log.info("channelGroup {} is not writable", clientChannels.name());
-                            if (getRedisService().isRedisConnected()) {
-                                String longText = clientChannels.stream().findAny().get().id().asLongText();
-                                log.info("write msg to redis ,channel id :{} ", longText);
-                                getRedisService().writeMsgCache(longText, msg);
-                            }
-                        }
-                        int randomIndex = random.nextInt(collect.size());
-                        Channel randomChannel = collect.get(randomIndex);
-                        String clientAddress = getHostStr(randomChannel.remoteAddress());
-                        log.info("client channel {} is writeable, {}", clientAddress, randomChannel);
-                        executorGroup.submit(() -> {
-                            // 转发消息到客户端
-                            if (msg instanceof ByteBuf) {
-                                byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
-                                ((ByteBuf) msg).readBytes(bytes);
-                                ((ByteBuf) msg).resetReaderIndex();
-                                log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientAddress, HexUtil.encodeHexStr(bytes));
-                            }
-                            log.info("client channel {} is active", clientAddress);
-                            randomChannel.writeAndFlush(msg);
+                                // 转发消息到客户端
+                                // 将耗时操作委托给 executorGroup 处理
+                                if (clientChannels.isEmpty()) {
+                                    ctx.close();
+                                    return;
+                                }
+                                List<Channel> collect = clientChannels.stream().filter(Channel::isWritable).collect(Collectors.toList());
+                                if (CollectionUtils.isEmpty(collect)) {
+                                    log.info("channelGroup {} is not writable", clientChannels.name());
+                                    if (getRedisService().isRedisConnected()) {
+                                        String longText = clientChannels.stream().findAny().get().id().asLongText();
+                                        log.info("write msg to redis ,channel id :{} ", longText);
+                                        getRedisService().writeMsgCache(longText, msg);
+                                    }
+                                }
+                                int randomIndex = random.nextInt(collect.size());
+                                Channel randomChannel = collect.get(randomIndex);
+                                String clientAddress = getHostStr(randomChannel.remoteAddress());
+                                log.info("client channel {} is writeable, {}", clientAddress, randomChannel);
+                                executorGroup.submit(() -> {
+                                    // 转发消息到客户端
+                                    if (msg instanceof ByteBuf) {
+                                        byte[] bytes = new byte[((ByteBuf) msg).readableBytes()];
+                                        ((ByteBuf) msg).readBytes(bytes);
+                                        ((ByteBuf) msg).resetReaderIndex();
+                                        log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientAddress, HexUtil.encodeHexStr(bytes));
+                                    }
+                                    log.info("client channel {} is active", clientAddress);
+                                    randomChannel.writeAndFlush(msg);
 
+                                });
+                            }
+
+                            @Override
+                            public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                                if (StringUtil.isNotEmpty(clientPort) && Constants.LOCAL_PORT_RULE_SINGLE.equals(clientPort)) {
+                                    log.info("clientPort is {} , means not to reconnect", clientPort);
+                                    shouldReconnect = false;
+                                }
+                                log.info("closed shouldReconnect : {}, target channel :{} inactive", shouldReconnect, getHostStr(ctx.channel().localAddress()));
+                                // 更新连接数
+                                String targetServerId = getTargetServerAddress();
+                                int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
+                                if (connectionCount > 0) {
+                                    connectionCounts.put(targetServerId, connectionCount - 1);
+                                }
+                                ctx.close();
+                                targetChannel = null;
+                                if (clientChannels.isEmpty()) {
+                                    return;
+                                }
+                                log.info("目标不可用：{}，{}重连！", targetServerId, shouldReconnect ? "尝试" : "无需");
+                                if (shouldReconnect) reconnectToTarget();
+                            }
+
+                            @Override
+                            public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+                                cause.printStackTrace();
+                                ctx.close();
+                                log.info("目标异常：{}，异常信息：{}，尝试重连！", getTargetServerAddress(), cause);
+                                reconnectToTarget();
+                            }
                         });
                     }
-
-                    @Override
-                    public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-                        // 更新连接数
-                        String targetServerId = getTargetServerAddress();
-                        int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
-                        if (connectionCount > 0) {
-                            connectionCounts.put(targetServerId, connectionCount - 1);
-                        }
-                        if (clientChannels.isEmpty()) {
-                            return;
-                        }
-                        log.info("目标不可用：{}，{}重连！", targetServerId, shouldReconnect ? "尝试" : "无需");
-                        if (shouldReconnect) reconnectToTarget();
-                    }
-
-                    @Override
-                    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-                        cause.printStackTrace();
-                        ctx.close();
-                        log.info("目标异常：{}，异常信息：{}，尝试重连！", getTargetServerAddress(), cause);
-                        reconnectToTarget();
-                    }
                 });
-            }
-        });
-        if (!StringUtil.isEmpty(clientPort))
+        if (!StringUtil.isEmpty(clientPort) && !Constants.LOCAL_PORT_RULE_SINGLE.equals(clientPort))
             try {
                 bootstrap.localAddress(Integer.valueOf(clientPort));
             } catch (Exception e) {
@@ -324,7 +331,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             targetPort = Integer.valueOf(split[1]);
         } else {
             reconnectTimeCount.set(1);
-            shouldReconnect=false;
+            shouldReconnect = false;
         }
         workerGroup.schedule(() -> {
             connectToTarget();
@@ -354,6 +361,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     public void initiativeReconnected() {
         //利用自动重连机制，主动关闭channel，让其重连
-         if (null!=targetChannel) targetChannel.close();
+        if (null != targetChannel) targetChannel.close();
     }
 }

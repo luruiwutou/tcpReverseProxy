@@ -21,8 +21,8 @@
 
     <!-- 使用 ResultMap 进行查询 -->
     <select id="selectMappingWithTargets" resultMap="mappingWithTargetsResultMap">
-        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('-',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
-        FROM tcp_proxy_mapping m
+        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('${regex}',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
+        FROM gateway.tcp_proxy_mapping m
         <where>
             <trim prefixOverrides="AND">
                 <if test="env != null and env != ''">

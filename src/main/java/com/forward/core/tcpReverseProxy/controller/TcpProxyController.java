@@ -138,7 +138,7 @@ public class TcpProxyController {
     private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws UnknownHostException {
         InetAddress localHost = InetAddress.getLocalHost();
         String ipAddress = localHost.getHostAddress();
-        List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress);
+        List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress,Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
         return tcpProxyMappings.stream().collect(Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections));
     }
 

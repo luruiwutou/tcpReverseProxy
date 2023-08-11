@@ -12,5 +12,5 @@ public interface TcpProxyMappingMapper extends BaseMapper<TcpProxyMapping> {
     // 自定义方法
 //    TcpProxyMapping selectMappingWithTargets(@Param("localHost") String localHost, @Param("localPort") String localPort);
 
-    List<TcpProxyMapping> selectMappingWithTargets(@Param("env") String env,@Param("localIp") String localIp);
+    List<TcpProxyMapping> selectMappingWithTargets(@Param("env") String env,@Param("localIp") String localIp,@Param("regex") String regex);
 }

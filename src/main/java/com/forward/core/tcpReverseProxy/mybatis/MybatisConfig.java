@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class MybatisConfig {
     @Bean
-    StringListTypeHandler handler() {
-        return new StringListTypeHandler();
+    StringArrayListTypeHandler handler() {
+        return new StringArrayListTypeHandler();
     }
 }

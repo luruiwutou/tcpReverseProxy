@@ -321,6 +321,13 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private AtomicInteger reconnectTimeCount = new AtomicInteger(1);
 
     private void reconnectToTarget() {
+        resetTargetAddress();
+        workerGroup.schedule(() -> {
+            connectToTarget();
+        }, 2, TimeUnit.SECONDS);
+    }
+
+    private void resetTargetAddress() {
         int increment = reconnectTimeCount.incrementAndGet();
         //只重连6次
         if (increment <= getReconnectTime.get()) {
@@ -333,9 +340,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             reconnectTimeCount.set(1);
             shouldReconnect = false;
         }
-        workerGroup.schedule(() -> {
-            connectToTarget();
-        }, 2, TimeUnit.SECONDS);
     }
 
     public void shutdown() {
@@ -362,5 +366,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     public void initiativeReconnected() {
         //利用自动重连机制，主动关闭channel，让其重连
         if (null != targetChannel) targetChannel.close();
+        resetTargetAddress();
     }
 }

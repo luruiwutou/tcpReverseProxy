@@ -180,7 +180,7 @@ public class ReverseProxyServer {
                     if (StringUtil.isNotEmpty(localClientPort)) {
                         Optional<ProxyHandler> optionalProxyHandler;
                         if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
-                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler ->   getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
+                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
                         } else {
                             optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
                         }
@@ -199,8 +199,11 @@ public class ReverseProxyServer {
             private Function<String[], String[]> getNewTarget() {
                 return (target) -> {
                     setTarget();
-                    if (CollectionUtils.isEmpty(targetConnections) || targetConnections.size() < 2) {
+                    if (CollectionUtils.isEmpty(targetConnections)) {
                         return target;
+                    }
+                    if (targetConnections.size() == 1) {
+                        return targetConnections.get(0);
                     }
                     List<String[]> otherTarget = targetConnections.stream().filter(a -> !a[1].equals(target[1])).collect(Collectors.toList());
                     Random random = new Random();
@@ -255,6 +258,7 @@ public class ReverseProxyServer {
                 }
                 return true;
             }
+
             public String getTargetServerAddress() {
                 return targetHost + ":" + targetPort;
             }

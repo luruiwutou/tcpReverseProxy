@@ -104,9 +104,10 @@ public class TcpProxyController {
         try {
             Map<String, List<String[]>> emvHosts = getHostsByEmv(env);
             Map<String, List<String[]>> hosts = server.getHosts();
+            Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts = server.getTargetProxyHandlerForHosts();
             if (CollectionUtil.isEmpty(emvHosts) && CollectionUtil.isEmpty(hosts)) return;
-            List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(key->!hosts.keySet().contains(key)).collect(Collectors.toList());
-            List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(key->!emvHosts.keySet().contains(key)).collect(Collectors.toList());
+            List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(key -> !hosts.keySet().contains(key)).collect(Collectors.toList());
+            List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(key -> !emvHosts.keySet().contains(key)).collect(Collectors.toList());
             Map<String, List<String[]>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             if (CollectionUtil.isNotEmpty(needStopServerPort)) {
                 for (String port : needStopServerPort) {
@@ -119,6 +120,8 @@ public class TcpProxyController {
             }
             server.setHosts(emvHosts);
             ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
+            closeNonConfig(emvHosts, targetProxyHandlerForHosts);
+
         } finally {
             log.info("Changing environment: {} cost {}", env, System.currentTimeMillis() - start);
         }
@@ -138,7 +141,7 @@ public class TcpProxyController {
     private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws UnknownHostException {
         InetAddress localHost = InetAddress.getLocalHost();
         String ipAddress = localHost.getHostAddress();
-        List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress,Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
+        List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress, Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
         return tcpProxyMappings.stream().collect(Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections));
     }
 
@@ -149,11 +152,11 @@ public class TcpProxyController {
 
     @PostMapping("/reload/{env}")
     public void reload(@PathVariable String env) throws Exception {
-        LockUtils.executeWithLock(Constants.RELOAD_EMN_KEY,10l,v->{
+        LockUtils.executeWithLock(Constants.RELOAD_EMN_KEY, 10l, v -> {
             try {
                 reloadSupplier(env);
             } catch (Exception e) {
-                log.info("Failed to reload,exception: " , e);
+                log.info("Failed to reload,exception: ", e);
             }
         });
     }
@@ -186,21 +189,31 @@ public class TcpProxyController {
                 }
                 server.start(server, needStartServer);
                 server.setHosts(hostsByEmv);
-                //关闭非配置的目标服务
-                for (Map.Entry<String, List<String[]>> stringListEntry : hostsByEmv.entrySet()) {
-                    if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
-                        return;
-                    }
-                    //
-                    targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler ->
-                            !stringListEntry.getValue().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))
-                    ).forEach(ProxyHandler::initiativeReconnected);
-                }
+                closeNonConfig(hostsByEmv, targetProxyHandlerForHosts);
             } else {
                 changeEnv(env);
             }
         }
         log.info("reloading env: {} cost {}", env, System.currentTimeMillis() - start);
+    }
+
+    /**
+     * 关闭非配置的目标服务
+     *
+     * @param hostsByEmv
+     * @param targetProxyHandlerForHosts
+     * @return
+     */
+    private static void closeNonConfig(Map<String, List<String[]>> hostsByEmv, Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts) {
+        for (Map.Entry<String, List<String[]>> stringListEntry : hostsByEmv.entrySet()) {
+            if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
+                continue;
+            }
+            //
+            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler ->
+                    !stringListEntry.getValue().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))
+            ).forEach(ProxyHandler::initiativeReconnected);
+        }
     }
 
     @GetMapping("/stopTarget/{hostPort}/{targetHost}")

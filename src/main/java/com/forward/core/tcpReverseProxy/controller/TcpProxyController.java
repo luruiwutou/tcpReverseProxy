@@ -3,6 +3,7 @@ package com.forward.core.tcpReverseProxy.controller;
 import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.ReverseProxyServer;
 import com.forward.core.tcpReverseProxy.constant.Constants;
 import com.forward.core.tcpReverseProxy.entity.ProxyConfig;
@@ -56,23 +57,20 @@ public class TcpProxyController {
         return ResponseEntity.ok(insert);
     }
 
-    @GetMapping("/testRedis")
-    public ResponseEntity testRedis() {
-        if (redisService.isRedisConnected()) {
-//            redisService.push("127.0.0.1:8885", "12345", "1234566");
-            redisService.getList("127.0.0.1:8885", 1l);
-            return ResponseEntity.ok(redisTemplateObj.opsForValue().get("FWD-INST-ID-CODE"));
-        }
-        return ResponseEntity.ok("redis close");
-    }
 
     private ReverseProxyServer server;
+    private String severAddress = "";
+
+    public String getSeverAddress() {
+        return StringUtil.isNotBlank(severAddress)?severAddress:getLocalServerAddress();
+    }
 
     @PostConstruct
     public void init() {
         // 在应用加载完成后执行的初始化方法逻辑
         try {
             log.info("Start Tcp Proxy Server");
+            severAddress = getLocalServerAddress();
             start(ProxyConfigEnum.DEFAULT_ENV.getKeyVal(proxyConfigMapper));
         } catch (Exception e) {
             e.printStackTrace();
@@ -128,21 +126,24 @@ public class TcpProxyController {
 
     }
 
-    public static void main(String[] args) {
-        try {
-            InetAddress localHost = InetAddress.getLocalHost();
-            String ipAddress = localHost.getHostAddress();
-            System.out.println("IP 地址: " + ipAddress);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 
-    private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws UnknownHostException {
-        InetAddress localHost = InetAddress.getLocalHost();
-        String ipAddress = localHost.getHostAddress();
+    private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws Exception {
+        String ipAddress = getSeverAddress();
         List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress, Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
         return tcpProxyMappings.stream().collect(Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections));
+    }
+
+    private static String getLocalServerAddress()  {
+        InetAddress localHost = null;
+        String ipAddress =null;
+        try {
+            localHost = InetAddress.getLocalHost();
+            ipAddress = localHost.getHostAddress();
+        } catch (UnknownHostException e) {
+            log.info("can't get local server address'");
+            ipAddress ="localhost";
+        }
+        return ipAddress;
     }
 
     @PostMapping("/addProxyMapping")
@@ -152,7 +153,7 @@ public class TcpProxyController {
 
     @PostMapping("/reload/{env}")
     public void reload(@PathVariable String env) throws Exception {
-        LockUtils.executeWithLock(Constants.RELOAD_EMN_KEY, 10l, v -> {
+        LockUtils.executeWithLock(getSeverAddress()+Constants.RELOAD_EMN_KEY, 10l, v -> {
             try {
                 reloadSupplier(env);
             } catch (Exception e) {

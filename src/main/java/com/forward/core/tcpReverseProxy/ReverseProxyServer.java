@@ -4,15 +4,18 @@ import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.constant.Constants;
+import com.forward.core.tcpReverseProxy.handler.CustomizeLengthFieldBasedFrameDecoder;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
-import org.springframework.util.StringUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,6 +25,7 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Slf4j
+@Component
 public class ReverseProxyServer {
     // 创建并启动代理服务器
     EventLoopGroup bossGroup = new NioEventLoopGroup();
@@ -53,7 +57,7 @@ public class ReverseProxyServer {
         log.info("start server channel :{}", JSON.toJSONString(hosts));
         for (Map.Entry<String, List<String[]>> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
-            if (serverChannels.keySet().contains(host.getKey())) {
+            if (server.getServerChannels().keySet().contains(host.getKey())) {
                 log.info("ports:{} has been Started", host.getKey());
                 continue;
             }
@@ -62,13 +66,13 @@ public class ReverseProxyServer {
                     final Channel channel = future.channel();
                     log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
                     // 将Channel对象存储到serverChannels中
-                    serverChannels.put(host.getKey(), channel);
+                    server.getServerChannels().put(host.getKey(), channel);
                 }).sync().await();
             } catch (Exception e) {
                 log.info("port:{} start failed, error msg:{}", host.getKey(), e.getMessage());
                 log.error("full error info", e);
             }
-            targetProxyHandlerForHosts.put(host.getKey(), targetProxyHandler);
+            server.getTargetProxyHandlerForHosts().put(host.getKey(), targetProxyHandler);
         }
     }
 
@@ -126,9 +130,9 @@ public class ReverseProxyServer {
      *
      * @return
      */
-    private Function<String, List<String[]>> getTargetFunction() {
+        private Function<String, List<String[]>> getTargetFunction() {
         return (port) -> {
-            List<String[]> targetHost = hosts.get(port);
+            List<String[]> targetHost = this.hosts.get(port);
             log.info("--------------服务端口：{},监听服务为：{}------------------", port, JSON.toJSONString(targetHost));
             return targetHost;
         };
@@ -175,6 +179,7 @@ public class ReverseProxyServer {
                 if (!connectionFlag) {
                     ch.close();
                 }
+                ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
                 log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
                 if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
                     if (StringUtil.isNotEmpty(localClientPort)) {
@@ -215,6 +220,7 @@ public class ReverseProxyServer {
             }
 
             private Supplier<Integer> getReconnectTime() {
+                setTarget();
                 return () -> 5 * targetConnections.size();
             }
 
@@ -298,21 +304,21 @@ public class ReverseProxyServer {
         return targetProxyHandlerForHosts;
     }
 
-    public static void main(String[] args) throws Exception {
-        try {
-            // 本地服务器的端口号
-            String[] localPorts = {"8888", "8889"};
-            // 目标服务器的主机名或IP地址,目标服务器的端口号
-            List<String[]> connections = Arrays.asList(new String[]{"", "localhost:8881"}, new String[]{"", "localhost:8881"});
-            Map<String, List<String[]>> hashMap = new HashMap<>();
-            for (int i = 0; i < localPorts.length; i++) {
-                hashMap.put(localPorts[i], connections);
-            }
-            ReverseProxyServer server = start(hashMap);
-            server.stopTargetServer("8888", "localhost:8881");
-
-        } finally {
-//            server.shutDown();
-        }
-    }
+//    public static void main(String[] args) throws Exception {
+//        try {
+//            // 本地服务器的端口号
+//            String[] localPorts = {"8888", "8889"};
+//            // 目标服务器的主机名或IP地址,目标服务器的端口号
+//            List<String[]> connections = Arrays.asList(new String[]{"", "localhost:8881"}, new String[]{"", "localhost:8881"});
+//            Map<String, List<String[]>> hashMap = new HashMap<>();
+//            for (int i = 0; i < localPorts.length; i++) {
+//                hashMap.put(localPorts[i], connections);
+//            }
+//            ReverseProxyServer server = start(hashMap);
+//            server.stopTargetServer("8888", "localhost:8881");
+//
+//        } finally {
+////            server.shutDown();
+//        }
+//    }
 }

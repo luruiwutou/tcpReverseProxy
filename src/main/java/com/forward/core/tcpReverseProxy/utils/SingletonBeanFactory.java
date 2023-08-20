@@ -16,12 +16,15 @@ public class SingletonBeanFactory<T> {
     }
 
 
-    public static <T> SingletonBeanFactory<T> getBeanInstance(Class<T> clz) {
+    public static <T> SingletonBeanFactory<T> getSpringBeanInstance(Class<T> clz) {
+        return getBeanInstance(clz,() -> SpringUtils.getBean(clz));
+    }
+    public static <T> SingletonBeanFactory<T> getBeanInstance(Class<T> clz,Supplier<T> supplier) {
         SingletonBeanFactory singletonBeanFactory = instanceMap.get(clz);
         if (singletonBeanFactory == null) {
             synchronized (SingletonBeanFactory.class) {
                 if (singletonBeanFactory == null) {
-                    singletonBeanFactory = new SingletonBeanFactory<>(() -> SpringUtils.getBean(clz));
+                    singletonBeanFactory = new SingletonBeanFactory<>(supplier);
                     instanceMap.put(clz, singletonBeanFactory);
                 }
             }

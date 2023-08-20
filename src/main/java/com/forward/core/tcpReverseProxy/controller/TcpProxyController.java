@@ -14,6 +14,7 @@ import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import com.forward.core.tcpReverseProxy.mapper.TcpProxyMappingMapper;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
+import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import io.netty.channel.Channel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,14 +24,14 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
+
+import com.forward.core.tcpReverseProxy.utils.HostUtils;
 
 @RestController
 @RequestMapping("/proxy")
@@ -62,7 +63,7 @@ public class TcpProxyController {
     private String severAddress = "";
 
     public String getSeverAddress() {
-        return StringUtil.isNotBlank(severAddress)?severAddress:getLocalServerAddress();
+        return StringUtil.isNotBlank(severAddress) ? severAddress : HostUtils.getLocalServerAddress();
     }
 
     @PostConstruct
@@ -70,7 +71,7 @@ public class TcpProxyController {
         // 在应用加载完成后执行的初始化方法逻辑
         try {
             log.info("Start Tcp Proxy Server");
-            severAddress = getLocalServerAddress();
+            severAddress = HostUtils.getLocalServerAddress();
             start(ProxyConfigEnum.DEFAULT_ENV.getKeyVal(proxyConfigMapper));
         } catch (Exception e) {
             e.printStackTrace();
@@ -84,13 +85,20 @@ public class TcpProxyController {
     }
 
     @GetMapping("/start/{env}")
-    public void start(@PathVariable String env) throws Exception {
+    public void start(@PathVariable String env) {
         Map<String, List<String[]>> hosts = getHostsByEmv(env);
         if (CollectionUtil.isEmpty(hosts)) {
             log.info("env has no configuration ,do nothing");
             return;
         }
-        server = ReverseProxyServer.start(hosts);
+        server = SingletonBeanFactory.getBeanInstance(ReverseProxyServer.class, () -> {
+            try {
+                return ReverseProxyServer.start(hosts);
+            } catch (Exception e) {
+                log.info("Start Tcp Server Exception", e);
+                throw new RuntimeException(e);
+            }
+        }).getSingleton();
         ProxyConfigEnum.RUNTIME_ENV.update(env, proxyConfigMapper);
 //        reverseProxyServer.bootstrap()
     }
@@ -107,11 +115,12 @@ public class TcpProxyController {
             List<String> needStartServerPort = CollectionUtil.isEmpty(hosts) ? emvHosts.keySet().stream().collect(Collectors.toList()) : emvHosts.keySet().stream().filter(key -> !hosts.keySet().contains(key)).collect(Collectors.toList());
             List<String> needStopServerPort = CollectionUtil.isEmpty(emvHosts) ? hosts.keySet().stream().collect(Collectors.toList()) : hosts.keySet().stream().filter(key -> !emvHosts.keySet().contains(key)).collect(Collectors.toList());
             Map<String, List<String[]>> needStartServer = emvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            log.info("need start server:{}", JSON.toJSONString(needStartServer));
+            log.info("need stop server:{}", JSON.toJSONString(needStopServerPort));
             if (CollectionUtil.isNotEmpty(needStopServerPort)) {
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
                 }
-                server.setServerChannels(new ConcurrentHashMap<>());
             }
             if (CollectionUtil.isNotEmpty(needStartServer)) {
                 server.start(server, needStartServer);
@@ -127,24 +136,12 @@ public class TcpProxyController {
     }
 
 
-    private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) throws Exception {
+    private Map<String, List<String[]>> getHostsByEmv(@PathVariable String env) {
         String ipAddress = getSeverAddress();
         List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(env, ipAddress, Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
         return tcpProxyMappings.stream().collect(Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections));
     }
 
-    private static String getLocalServerAddress()  {
-        InetAddress localHost = null;
-        String ipAddress =null;
-        try {
-            localHost = InetAddress.getLocalHost();
-            ipAddress = localHost.getHostAddress();
-        } catch (UnknownHostException e) {
-            log.info("can't get local server address'");
-            ipAddress ="localhost";
-        }
-        return ipAddress;
-    }
 
     @PostMapping("/addProxyMapping")
     public void addProxyMapping(@RequestBody TcpProxyMapping mapping) {
@@ -153,7 +150,7 @@ public class TcpProxyController {
 
     @PostMapping("/reload/{env}")
     public void reload(@PathVariable String env) throws Exception {
-        LockUtils.executeWithLock(getSeverAddress()+Constants.RELOAD_EMN_KEY, 10l, v -> {
+        LockUtils.executeWithLock(getSeverAddress() + Constants.RELOAD_EMN_KEY, 10l, v -> {
             try {
                 reloadSupplier(env);
             } catch (Exception e) {
@@ -210,10 +207,12 @@ public class TcpProxyController {
             if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
                 continue;
             }
-            //
             targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler ->
                     !stringListEntry.getValue().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))
-            ).forEach(ProxyHandler::initiativeReconnected);
+            ).forEach(handler -> {
+                log.info("close non config target address:{}",handler.getTargetServerAddress());
+                handler.initiativeReconnected();
+            });
         }
     }
 

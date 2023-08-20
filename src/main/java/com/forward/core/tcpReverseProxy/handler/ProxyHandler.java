@@ -69,7 +69,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
 
     RedisService getRedisService() {
-        return SingletonBeanFactory.getBeanInstance(RedisService.class).getSingleton();
+        return SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton();
     }
 
     @Override
@@ -208,6 +208,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 .handler(new ChannelInitializer<Channel>() {
                     @Override
                     protected void initChannel(Channel ch) throws Exception {
+                        ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
                         ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                             @Override
                             public void channelActive(ChannelHandlerContext ctx) throws Exception {
@@ -234,6 +235,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                     ctx.close();
                                     return;
                                 }
+                                sendByClientChannels(msg);
+                            }
+
+                            private void sendByClientChannels(Object msg) {
                                 List<Channel> collect = clientChannels.stream().filter(Channel::isWritable).collect(Collectors.toList());
                                 if (CollectionUtils.isEmpty(collect)) {
                                     log.info("channelGroup {} is not writable", clientChannels.name());
@@ -365,7 +370,11 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     public void initiativeReconnected() {
         //利用自动重连机制，主动关闭channel，让其重连
-        if (null != targetChannel) targetChannel.close();
+        if (null != targetChannel) {
+            log.info("close target channel :localAddress :{},RemoteAddress:{}", getHostStr(targetChannel.localAddress()), getHostStr(targetChannel.remoteAddress()));
+            targetChannel.close();
+            targetChannel = null;
+        }
         resetTargetAddress();
     }
 }

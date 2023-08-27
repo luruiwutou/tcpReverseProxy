@@ -1,7 +1,10 @@
 package com.forward.core.tcpReverseProxy.utils;
 
 import cn.hutool.core.lang.UUID;
+import com.forward.core.constant.Constants;
+import com.forward.core.sftp.utils.StringUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
@@ -24,6 +27,7 @@ public class LockUtils {
     }
 
     public static <T> T executeWithLock(String lockKey, long expireTime, Supplier<T> method) throws Exception {
+        addTraceId();
         // 获取锁的过期时间
         String requestId = UUID.randomUUID().toString();
         // 加锁逻辑
@@ -52,6 +56,7 @@ public class LockUtils {
      * @throws Exception
      */
     public static void executeWithLock(String lockKey, long expireTime, Consumer<Void> method) throws Exception {
+        addTraceId();
         // 获取锁的过期时间
         String requestId = UUID.randomUUID().toString();
         // 加锁逻辑
@@ -70,6 +75,14 @@ public class LockUtils {
             if (lockAcquired)
                 // 释放锁
                 releaseLock(lockKey, requestId);
+        }
+    }
+
+    private static void addTraceId() {
+        String traceId = MDC.get(Constants.TRACE_ID);
+        if (StringUtil.isEmpty(traceId)) {
+            traceId = SnowFlake.getTraceId();
+            MDC.put(Constants.TRACE_ID, traceId);
         }
     }
 

@@ -7,7 +7,7 @@
     <property name="LOG_HISTORY_HOME" value="proxy_logback_history"/>
     <appender name="CONSOLE-LOG" class="ch.qos.logback.core.ConsoleAppender">
         <layout class="ch.qos.logback.classic.PatternLayout">
-            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} [%line] - %msg%n
             </pattern>
         </layout>
     </appender>
@@ -20,7 +20,7 @@
             <onMismatch>ACCEPT</onMismatch>
         </filter>
         <encoder>
-            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} [%line] - %msg%n
             </pattern>
             <charset>UTF-8</charset>
         </encoder>
@@ -44,7 +44,7 @@
         </filter>
         <encoder>
             <!--            <pattern>[%d{yyyy-MM-dd' 'HH:mm:ss.sss}] [%C] [%t] [%L] [%-5p] %m%n</pattern>-->
-            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} - %msg%n
+            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} [%line] - %msg%n
             </pattern>
             <charset>UTF-8</charset>
         </encoder>

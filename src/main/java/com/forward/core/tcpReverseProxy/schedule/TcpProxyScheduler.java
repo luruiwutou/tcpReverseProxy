@@ -1,13 +1,16 @@
 package com.forward.core.tcpReverseProxy.schedule;
 
 import com.forward.core.tcpReverseProxy.controller.TcpProxyController;
-import com.forward.core.tcpReverseProxy.enums.ProxyConfigEnum;
+import com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig;
+import com.forward.core.tcpReverseProxy.enums.ChannelProxyConfigEnum;
 import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 @Component
 public class TcpProxyScheduler {
@@ -22,8 +25,11 @@ public class TcpProxyScheduler {
     @Scheduled(cron = "00 */3 * * * ?")
     public void reportTask() throws Exception {
         logger.info("scheduled reload emv");
-        String keyVal = ProxyConfigEnum.RUNTIME_ENV.getKeyVal(proxyConfigMapper);
-        controller.reload(keyVal);
+
+        List<ChannelProxyConfig> channelEnv = ChannelProxyConfigEnum.RUNTIME_ENV.getChannelEnv(proxyConfigMapper);
+        for (ChannelProxyConfig channelProxyConfig : channelEnv) {
+            controller.reload(channelProxyConfig.getChannel(), channelProxyConfig.getConfVal());
+        }
     }
 
 }

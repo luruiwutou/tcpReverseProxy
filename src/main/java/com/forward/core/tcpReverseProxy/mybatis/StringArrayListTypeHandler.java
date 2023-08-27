@@ -1,6 +1,6 @@
 package com.forward.core.tcpReverseProxy.mybatis;
 
-import com.forward.core.tcpReverseProxy.constant.Constants;
+import com.forward.core.constant.Constants;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 
@@ -12,7 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
-import static com.forward.core.tcpReverseProxy.constant.Constants.COMMA;
+import static com.forward.core.constant.Constants.COMMA;
 
 public class StringArrayListTypeHandler extends BaseTypeHandler<List<String[]>> {
 

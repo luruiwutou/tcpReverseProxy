@@ -8,3 +8,12 @@ server:
   port: 8005
   servlet:
     context-path: /forward
+
+springdoc:
+  packagesToScan:
+    - com.forward.core.tcpReverseProxy
+  pathsToMatch:
+    - /**
+  swagger-ui:
+    path: /swagger-ui.html
+  show-actuator: true

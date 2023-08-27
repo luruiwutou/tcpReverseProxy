@@ -18,7 +18,8 @@ public class TcpProxyMapping {
     private String localClientPort;
     private String targetHost;
     private String targetPort;
-    private String env ="sit";
+    private String env ="SIT";
+    private String channel;
     @TableField(exist = false)
     private List<String[]> targetConnections;
 

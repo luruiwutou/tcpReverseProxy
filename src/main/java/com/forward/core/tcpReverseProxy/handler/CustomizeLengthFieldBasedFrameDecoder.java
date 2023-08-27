@@ -1,5 +1,8 @@
 package com.forward.core.tcpReverseProxy.handler;
 
+import com.forward.core.constant.Constants;
+import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.tcpReverseProxy.utils.SnowFlake;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.CorruptedFrameException;
@@ -7,6 +10,7 @@ import io.netty.handler.codec.DecoderException;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 
 import java.nio.ByteOrder;
 import java.nio.charset.Charset;
@@ -67,14 +71,11 @@ public class CustomizeLengthFieldBasedFrameDecoder extends LengthFieldBasedFrame
     }
 
     protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-
-        Object decode = super.decode(ctx, in);
-        if (decode == null) {
-
-////            in.release();
-//            ReferenceCountUtil.release(in);
-//            throw new CorruptedFrameException("针对丢包情况不处理");
+        if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))){
+            String traceId = SnowFlake.getTraceId();
+            MDC.put(Constants.TRACE_ID, traceId);
         }
+        Object decode = super.decode(ctx, in);
         return decode;
     }
 
@@ -82,5 +83,6 @@ public class CustomizeLengthFieldBasedFrameDecoder extends LengthFieldBasedFrame
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
         log.info("decoder Exception :", cause);
         super.exceptionCaught(ctx, cause);
+        MDC.remove(Constants.TRACE_ID);
     }
 }

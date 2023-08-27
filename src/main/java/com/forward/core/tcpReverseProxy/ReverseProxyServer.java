@@ -3,18 +3,20 @@ package com.forward.core.tcpReverseProxy;
 import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.sftp.utils.StringUtil;
-import com.forward.core.tcpReverseProxy.constant.Constants;
+import com.forward.core.constant.Constants;
 import com.forward.core.tcpReverseProxy.handler.CustomizeLengthFieldBasedFrameDecoder;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
+import com.forward.core.tcpReverseProxy.utils.SnowFlake;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
+import io.netty.util.concurrent.DefaultEventExecutorGroup;
+import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 
 import java.util.*;
@@ -24,36 +26,56 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+/**
+ * TCP反向代理服务
+ */
 @Slf4j
 @Component
 public class ReverseProxyServer {
     // 创建并启动代理服务器
     EventLoopGroup bossGroup = new NioEventLoopGroup();
     EventLoopGroup workerGroup = new NioEventLoopGroup();
-    private Map<String, List<String[]>> hosts;
+    private EventLoopGroup handlerWorkerGroup = new NioEventLoopGroup();
+    private EventExecutorGroup executorGroup = new DefaultEventExecutorGroup(64);
+    private Map<String, Map<String, List<String[]>>> hosts;
     // 存储端口与对应的Channel对象
     private Map<String, Channel> serverChannels;
     private Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts;
 
     public ReverseProxyServer() {
+        if (CollectionUtil.isEmpty(this.hosts)) {
+            this.hosts = new ConcurrentHashMap<>();
+        }
         this.serverChannels = new ConcurrentHashMap<>();
         this.targetProxyHandlerForHosts = new ConcurrentHashMap<>();
     }
 
-    public ReverseProxyServer(Map<String, List<String[]>> hosts) {
-        this.hosts = hosts;
-        this.serverChannels = new ConcurrentHashMap();
-        this.targetProxyHandlerForHosts = new ConcurrentHashMap<>();
+    public ReverseProxyServer(String channel, Map<String, List<String[]>> hostMap) {
+        if (CollectionUtil.isEmpty(this.hosts)) {
+            this.hosts = new ConcurrentHashMap<>();
+        }
+        if (CollectionUtil.isEmpty(this.serverChannels)) {
+            this.hosts = new ConcurrentHashMap<>();
+        }
+        if (CollectionUtil.isEmpty(this.targetProxyHandlerForHosts)) {
+            this.hosts = new ConcurrentHashMap<>();
+        }
+        this.hosts.put(channel, hostMap);
     }
 
-    public static ReverseProxyServer start(Map<String, List<String[]>> hosts) throws Exception {
-        ReverseProxyServer server = new ReverseProxyServer(hosts);
-        server.start(server, hosts);
-        return server;
+    /**
+     * @return
+     */
+    public void start() {
+        if (hosts.isEmpty()) {
+            return;
+        }
+        this.hosts.forEach((key, value) -> {
+            start(this, value);
+        });
     }
 
-
-    public void start(ReverseProxyServer server, Map<String, List<String[]>> hosts) throws Exception {
+    public void start(ReverseProxyServer server, Map<String, List<String[]>> hosts) {
         log.info("start server channel :{}", JSON.toJSONString(hosts));
         for (Map.Entry<String, List<String[]>> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
@@ -130,9 +152,13 @@ public class ReverseProxyServer {
      *
      * @return
      */
-        private Function<String, List<String[]>> getTargetFunction() {
+    private Function<String, List<String[]>> getTargetFunction() {
         return (port) -> {
-            List<String[]> targetHost = this.hosts.get(port);
+            //与渠道无关，所以排除渠道的影响，进行合并处理
+            List<String[]> targetHost = this.hosts.values().stream()
+                    .flatMap(map -> map.entrySet().stream())
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)).get(port);
+
             log.info("--------------服务端口：{},监听服务为：{}------------------", port, JSON.toJSONString(targetHost));
             return targetHost;
         };
@@ -174,6 +200,8 @@ public class ReverseProxyServer {
 
             @Override
             protected void initChannel(SocketChannel ch) {
+                String traceId = SnowFlake.getTraceId();
+                MDC.put(Constants.TRACE_ID, traceId);
                 remoteClientPort = String.valueOf(ch.localAddress().getPort());
                 boolean connectionFlag = setTarget();
                 if (!connectionFlag) {
@@ -196,7 +224,7 @@ public class ReverseProxyServer {
                     }
 
                 }
-                ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, targetProxyHandlers, getNewTarget(), getReconnectTime());
+                ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime());
                 ch.pipeline().addLast(proxyHandler);
             }
 
@@ -275,21 +303,30 @@ public class ReverseProxyServer {
 
 
     public void shutDown() {
-        if (CollectionUtil.isNotEmpty(hosts.keySet())) {
-            for (String port : hosts.keySet()) {
+        Set<String> keySet = hosts.values().stream()
+                .flatMap(map -> map.entrySet().stream())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)).keySet();
+        if (CollectionUtil.isNotEmpty(keySet)) {
+            for (String port : keySet) {
                 closeChannelConnects(port);
             }
         }
         bossGroup.shutdownGracefully();
         workerGroup.shutdownGracefully();
+        handlerWorkerGroup.shutdownGracefully();
+        executorGroup.shutdownGracefully();
     }
 
-    public Map<String, List<String[]>> getHosts() {
+    public Map<String, Map<String, List<String[]>>> getHosts() {
         return hosts;
     }
 
-    public void setHosts(Map<String, List<String[]>> hosts) {
+    public void setHosts(Map<String, Map<String, List<String[]>>> hosts) {
         this.hosts = hosts;
+    }
+
+    public void putChannelHosts(String channel, Map<String, List<String[]>> channelHosts) {
+        this.hosts.put(channel, channelHosts);
     }
 
     public Map<String, Channel> getServerChannels() {

@@ -49,6 +49,9 @@ import java.util.List;
 //import org.apache.http.ssl.SSLContextBuilder;
 //import org.apache.http.util.EntityUtils;
 
+/**
+ * 做转发Http请求的转发
+ */
 @Controller
 @Slf4j
 public class ForwardingController {

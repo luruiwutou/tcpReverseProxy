@@ -10,6 +10,7 @@
     <!--    </resultMap>-->
     <!-- 定义 ResultMap -->
     <resultMap id="mappingWithTargetsResultMap" type="com.forward.core.tcpReverseProxy.entity.TcpProxyMapping">
+        <result column="channel" property="channel"/>
         <result column="local_host" property="localHost"/>
         <result column="local_port" property="localPort"/>
         <result column="targetConnections" property="targetConnections"
@@ -21,7 +22,10 @@
 
     <!-- 使用 ResultMap 进行查询 -->
     <select id="selectMappingWithTargets" resultMap="mappingWithTargetsResultMap">
-        SELECT m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('${regex}',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
+        SELECT  CASE
+        WHEN m.channel IS NULL OR m.channel = '' THEN '*'
+        ELSE m.channel
+        END AS channel, m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('${regex}',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
         FROM gateway.tcp_proxy_mapping m
         <where>
             <trim prefixOverrides="AND">
@@ -31,9 +35,12 @@
                 <if test="localIp != null and localIp != ''">
                     AND m.local_host = #{localIp}
                 </if>
+                <if test="channel != null and channel != ''">
+                    AND m.channel = #{channel}
+                </if>
             </trim>
         </where>
-        GROUP BY m.local_host, m.local_port
+        GROUP BY m.local_host, m.local_port,channel
     </select>
     <!-- 使用 ResultMap 进行查询 -->
     <!--    <select id="selectProxyMappings" resultMap="ProxyMappingResultMap">-->

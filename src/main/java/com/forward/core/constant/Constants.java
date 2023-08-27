@@ -1,4 +1,4 @@
-package com.forward.core.tcpReverseProxy.constant;
+package com.forward.core.constant;
 
 public class Constants {
     /**
@@ -13,4 +13,9 @@ public class Constants {
     public static final String MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX="&";
     public static final String COMMA=",";
     public static final String COLON=":";
+    public static final String ASTERISK="*";
+    /**
+     *
+     */
+    public static final String TRACE_ID="traceId";
 }

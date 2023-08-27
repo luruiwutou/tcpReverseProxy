@@ -3,11 +3,10 @@ package com.forward.core.tcpReverseProxy.mybatis;
 import org.apache.ibatis.type.BaseTypeHandler;
 import org.apache.ibatis.type.JdbcType;
 import java.sql.*;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-import static com.forward.core.tcpReverseProxy.constant.Constants.COMMA;
+import static com.forward.core.constant.Constants.COMMA;
 
 public class StringListTypeHandler extends BaseTypeHandler<List<String>> {
 

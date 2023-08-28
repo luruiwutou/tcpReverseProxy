@@ -221,10 +221,14 @@ public class TcpProxyController {
         } else {
             if (!Constants.ASTERISK.equals(channel) && env.equals(ChannelProxyConfigEnum.RUNTIME_ENV.getKeyVal(channel, proxyConfigMapper))) {
                 Map<String, List<String[]>> hostsByEmv = getHostsByEmv(channel, env).get(channel);
-                Map<String, Channel> serverChannels = server.getServerChannels();
+                Map<String, List<String[]>> channelHosts = server.getHosts().get(channel);
                 Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts = server.getTargetProxyHandlerForHosts();
                 if (CollectionUtil.isEmpty(hostsByEmv)) {
-                    for (String port : serverChannels.keySet()) {
+                    if (CollectionUtil.isEmpty(channelHosts)) {
+                        log.info("no server port ,ending reload!");
+                        return;
+                    }
+                    for (String port : channelHosts.keySet()) {
                         server.closeChannelConnects(port);
                     }
                     server.getHosts().remove(channel);
@@ -232,11 +236,8 @@ public class TcpProxyController {
                 }
                 log.info("refresh {} config：{}", env, JSON.toJSONString(hostsByEmv));
                 //处理新启的服务端
-                Map<String, List<String[]>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !serverChannels.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-                Map<String, List<String[]>> channelNowHosts = server.getHosts().values().stream()
-                        .flatMap(map -> map.entrySet().stream())
-                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue));
-                List<String> needStopServerPort = channelNowHosts.keySet().stream().filter(port -> !hostsByEmv.keySet().contains(port)).collect(Collectors.toList());
+                Map<String, List<String[]>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !channelHosts.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                List<String> needStopServerPort = channelHosts.keySet().stream().filter(port -> !hostsByEmv.keySet().contains(port)).collect(Collectors.toList());
                 //处理关闭的服务端
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);

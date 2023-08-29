@@ -42,11 +42,12 @@ public class CustomizeLengthFieldBasedFrameDecoder extends LengthFieldBasedFrame
                 break;
             case 4:
             case 8:
+            case 9:
                 frameLength = getFrameLength(buf, offset, length);
                 break;
             default:
                 throw new DecoderException(
-                        "unsupported lengthFieldLength: " + length + " (expected: 1, 2, 3, 4, or 8)");
+                        "unsupported lengthFieldLength: " + length + " (expected: 1, 2, 3, 4, 8, 9)");
         }
         return frameLength;
     }

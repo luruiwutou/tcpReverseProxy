@@ -15,7 +15,11 @@ public class Constants {
     public static final String COLON=":";
     public static final String ASTERISK="*";
     /**
-     *
+     *MDC中键名traceId
      */
     public static final String TRACE_ID="traceId";
+    /**
+     *
+     */
+    public static final int DEFAULT_FIELD_LENGTH=4;
 }

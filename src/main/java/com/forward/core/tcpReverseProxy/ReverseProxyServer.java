@@ -37,10 +37,20 @@ public class ReverseProxyServer {
     EventLoopGroup workerGroup = new NioEventLoopGroup();
     private EventLoopGroup handlerWorkerGroup = new NioEventLoopGroup();
     private EventExecutorGroup executorGroup = new DefaultEventExecutorGroup(64);
+    /**
+     * 渠道对应的代理集合
+     */
     private Map<String, Map<String, List<String[]>>> hosts;
     // 存储端口与对应的Channel对象
     private Map<String, Channel> serverChannels;
+    /**
+     * 每个代理地址对应的目标处理器
+     */
     private Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts;
+    /**
+     * 端口对应的拆包长度
+     */
+    private Map<String, Integer> fieldLengthMap = new HashMap<>();
 
     public ReverseProxyServer() {
         if (CollectionUtil.isEmpty(this.hosts)) {
@@ -89,6 +99,7 @@ public class ReverseProxyServer {
                     log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
                     // 将Channel对象存储到serverChannels中
                     server.getServerChannels().put(host.getKey(), channel);
+//                    server.getFieldLengthMap().put(host.getKey(), fieldLength);
                 }).sync().await();
             } catch (Exception e) {
                 log.info("port:{} start failed, error msg:{}", host.getKey(), e.getMessage());
@@ -187,7 +198,7 @@ public class ReverseProxyServer {
     }
 
 
-    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers) throws Exception {
+    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers) {
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).childHandler(new ChannelInitializer<SocketChannel>() {
             private String targetHost;
@@ -333,8 +344,8 @@ public class ReverseProxyServer {
         return serverChannels;
     }
 
-    public void setServerChannels(Map<String, Channel> serverChannels) {
-        this.serverChannels = serverChannels;
+    public Map<String, Integer> getFieldLengthMap() {
+        return fieldLengthMap;
     }
 
     public Map<String, ConcurrentLinkedQueue<ProxyHandler>> getTargetProxyHandlerForHosts() {

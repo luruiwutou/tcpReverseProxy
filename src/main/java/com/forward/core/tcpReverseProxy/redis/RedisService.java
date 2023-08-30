@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -21,6 +22,16 @@ public class RedisService {
 
     @Autowired
     RedisTemplate<String, byte[]> redisTemplateByteArray;
+    @Autowired
+    StringRedisTemplate redisTemplateStr;
+
+    public Object getStrValueByKey(String key) {
+        return redisTemplateStr.opsForValue().get(key);
+    }
+
+    public void setStrValue(String key, String value) {
+        redisTemplateStr.opsForValue().set(key, value);
+    }
 
     public boolean isRedisConnected() {
         RedisConnection connection = null;

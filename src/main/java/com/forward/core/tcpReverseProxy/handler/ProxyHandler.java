@@ -1,5 +1,6 @@
 package com.forward.core.tcpReverseProxy.handler;
 
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.HexUtil;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.constant.Constants;
@@ -13,9 +14,7 @@ import io.netty.channel.*;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.ChannelGroupFutureListener;
 import io.netty.channel.group.DefaultChannelGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -49,13 +48,15 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private Function<String[], String[]> getNewTarget;
     private Supplier<Integer> getReconnectTime;
     private ConcurrentLinkedQueue<ProxyHandler> proxyHandlers;
+    private Supplier<Map<String, ChannelHandler>> customizeHandlerMapSup;
     private volatile boolean isShutDown = false;
     private volatile boolean shouldReconnect = true;
 
-    public ProxyHandler(String clientPort, String targetHost, int targetPort, Map<String, Integer> connectionCounts, EventLoopGroup workerGroup, EventExecutorGroup executorGroup, ConcurrentLinkedQueue targetProxyHandler, Function<String[], String[]> getNewTarget, Supplier<Integer> getReconnectTime) {
+    public ProxyHandler(String clientPort, String targetHost, int targetPort, Map<String, Integer> connectionCounts, EventLoopGroup workerGroup, EventExecutorGroup executorGroup, ConcurrentLinkedQueue targetProxyHandler, Function<String[], String[]> getNewTarget, Supplier<Integer> getReconnectTime, Supplier<Map<String, ChannelHandler>> customizeHandlerMap) {
         this.clientPort = clientPort;
         this.targetHost = targetHost;
         this.targetPort = targetPort;
+        this.customizeHandlerMapSup = customizeHandlerMap;
         this.connectionCounts = connectionCounts; // 使用线程安全的 ConcurrentHashMap
         this.workerGroup = workerGroup;
         this.executorGroup = executorGroup;
@@ -232,7 +233,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 .handler(new ChannelInitializer<Channel>() {
                     @Override
                     protected void initChannel(Channel ch) throws Exception {
-                        ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
+                        Map<String, ChannelHandler> channelHandlerMap = customizeHandlerMapSup.get();
+                        if (CollectionUtil.isNotEmpty(channelHandlerMap)) {
+                            channelHandlerMap.forEach((key, value) -> ch.pipeline().addLast(key, value));
+                        }
                         ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
                             @Override
                             public void channelActive(ChannelHandlerContext ctx) throws Exception {

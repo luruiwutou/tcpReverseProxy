@@ -1,11 +1,15 @@
 package com.forward.core.tcpReverseProxy;
 
 import cn.hutool.core.collection.CollectionUtil;
+import cn.hutool.core.util.ObjectUtil;
 import com.alibaba.fastjson.JSON;
-import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.constant.Constants;
+import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.handler.CustomizeLengthFieldBasedFrameDecoder;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
+import com.forward.core.tcpReverseProxy.redis.RedisService;
+import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -40,17 +44,13 @@ public class ReverseProxyServer {
     /**
      * 渠道对应的代理集合
      */
-    private Map<String, Map<String, List<String[]>>> hosts;
+    private Map<String, Map<String, TcpProxyMapping>> hosts;
     // 存储端口与对应的Channel对象
     private Map<String, Channel> serverChannels;
     /**
      * 每个代理地址对应的目标处理器
      */
     private Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts;
-    /**
-     * 端口对应的拆包长度
-     */
-    private Map<String, Integer> fieldLengthMap = new HashMap<>();
 
     public ReverseProxyServer() {
         if (CollectionUtil.isEmpty(this.hosts)) {
@@ -60,7 +60,7 @@ public class ReverseProxyServer {
         this.targetProxyHandlerForHosts = new ConcurrentHashMap<>();
     }
 
-    public ReverseProxyServer(String channel, Map<String, List<String[]>> hostMap) {
+    public ReverseProxyServer(String channel, Map<String, TcpProxyMapping> hostMap) {
         if (CollectionUtil.isEmpty(this.hosts)) {
             this.hosts = new ConcurrentHashMap<>();
         }
@@ -85,16 +85,16 @@ public class ReverseProxyServer {
         });
     }
 
-    public void start(ReverseProxyServer server, Map<String, List<String[]>> hosts) {
+    public void start(ReverseProxyServer server, Map<String, TcpProxyMapping> hosts) {
         log.info("start server channel :{}", JSON.toJSONString(hosts));
-        for (Map.Entry<String, List<String[]>> host : hosts.entrySet()) {
+        for (Map.Entry<String, TcpProxyMapping> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
             if (server.getServerChannels().keySet().contains(host.getKey())) {
                 log.info("ports:{} has been Started", host.getKey());
                 continue;
             }
             try {
-                server.bootstrap(getTargetFunction(), targetProxyHandler).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
+                server.bootstrap(getTargetFunction(), targetProxyHandler, getCustomizeChannel()).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
                     final Channel channel = future.channel();
                     log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
                     // 将Channel对象存储到serverChannels中
@@ -168,12 +168,46 @@ public class ReverseProxyServer {
             //与渠道无关，所以排除渠道的影响，进行合并处理
             List<String[]> targetHost = this.hosts.values().stream()
                     .flatMap(map -> map.entrySet().stream())
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)).get(port);
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            entry -> entry.getValue().getTargetConnections(),
+                            (existingValue, newValue) -> newValue
+                    )).get(port);
 
             log.info("--------------服务端口：{},监听服务为：{}------------------", port, JSON.toJSONString(targetHost));
             return targetHost;
         };
     }
+
+    private Function<String, Map<String, ChannelHandler>> getCustomizeChannel() {
+        return (port) -> {
+            //与渠道无关，所以排除渠道的影响，进行合并处理
+
+            Map<String, List<String>> result = this.hosts.entrySet().stream()
+                    .collect(Collectors.toMap(
+                            Map.Entry::getKey,
+                            entry -> entry.getValue().entrySet().stream()
+                                    .map(Map.Entry::getKey)
+                                    .collect(Collectors.toList())
+                    ));
+            Map<String, ChannelHandler> map = new HashMap<>();
+            // 在 result 中查找包含 'port' 的列表并输出对应的键
+            for (Map.Entry<String, List<String>> entry : result.entrySet()) {
+                String channelName = entry.getKey();
+                List<String> mappingKeys = entry.getValue();
+                if (mappingKeys.contains(port)) {
+                    log.info("Get channel {} config ", channelName);
+                    Object fieldLengthObj = SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().getStrValueByKey(channelName + Constants.DEFAULT_FIELD_LENGTH_KEY);
+                    if (ObjectUtil.isNotEmpty(fieldLengthObj)) {
+                        String[] fields = fieldLengthObj.toString().split(",");
+                        map.put("customizeLengthFieldBasedFrameDecoder", new CustomizeLengthFieldBasedFrameDecoder(Integer.valueOf(fields[0]), Integer.valueOf(fields[1]), Integer.valueOf(fields[2]), Integer.valueOf(fields[3]), Integer.valueOf(fields[4])));
+                    }
+                }
+            }
+            return map;
+        };
+    }
+//                        ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
 
     /**
      * 关闭对转发目标客户端的连接
@@ -198,7 +232,7 @@ public class ReverseProxyServer {
     }
 
 
-    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers) {
+    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers, Function<String, Map<String, ChannelHandler>> customizeHandler) {
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).childHandler(new ChannelInitializer<SocketChannel>() {
             private String targetHost;
@@ -208,6 +242,9 @@ public class ReverseProxyServer {
             private Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
             private List<String[]> targetConnections = new ArrayList<>();
 
+            private Supplier<Map<String, ChannelHandler>> getCustomizeTargetHandlerMap() {
+                return () -> customizeHandler.apply(remoteClientPort);
+            }
 
             @Override
             protected void initChannel(SocketChannel ch) {
@@ -218,7 +255,10 @@ public class ReverseProxyServer {
                 if (!connectionFlag) {
                     ch.close();
                 }
-                ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
+                Map<String, ChannelHandler> customizeHandlerMap = customizeHandler.apply(remoteClientPort);
+                if (CollectionUtil.isNotEmpty(customizeHandlerMap)) {
+                    customizeHandlerMap.forEach((key, value) -> ch.pipeline().addLast(key, value));
+                }
                 log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
                 if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
                     if (StringUtil.isNotEmpty(localClientPort)) {
@@ -235,7 +275,7 @@ public class ReverseProxyServer {
                     }
 
                 }
-                ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime());
+                ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime(), getCustomizeTargetHandlerMap());
                 ch.pipeline().addLast(proxyHandler);
             }
 
@@ -328,24 +368,20 @@ public class ReverseProxyServer {
         executorGroup.shutdownGracefully();
     }
 
-    public Map<String, Map<String, List<String[]>>> getHosts() {
+    public Map<String, Map<String, TcpProxyMapping>> getHosts() {
         return hosts;
     }
 
-    public void setHosts(Map<String, Map<String, List<String[]>>> hosts) {
+    public void setHosts(Map<String, Map<String, TcpProxyMapping>> hosts) {
         this.hosts = hosts;
     }
 
-    public void putChannelHosts(String channel, Map<String, List<String[]>> channelHosts) {
+    public void putChannelHosts(String channel, Map<String, TcpProxyMapping> channelHosts) {
         this.hosts.put(channel, channelHosts);
     }
 
     public Map<String, Channel> getServerChannels() {
         return serverChannels;
-    }
-
-    public Map<String, Integer> getFieldLengthMap() {
-        return fieldLengthMap;
     }
 
     public Map<String, ConcurrentLinkedQueue<ProxyHandler>> getTargetProxyHandlerForHosts() {

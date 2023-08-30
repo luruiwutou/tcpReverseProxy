@@ -15,7 +15,7 @@ import com.forward.core.tcpReverseProxy.mapper.TcpProxyMappingMapper;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.HostUtils;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
-import io.netty.channel.Channel;
+import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,10 +25,11 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Tag(name = "代理请求")
@@ -88,15 +89,31 @@ public class TcpProxyController {
         if (null == server) {
             server = new ReverseProxyServer();
         }
-        Map<String, Map<String, List<String[]>>> hosts = getHostsByEmv(channel, env);
+        putConfigToRedis(channel);
+        Map<String, Map<String, TcpProxyMapping>> hosts = getHostsByEmv(channel, env);
         if (CollectionUtil.isEmpty(hosts)) {
             log.info("env has no configuration ,do nothing");
             return;
         }
-        for (Map.Entry<String, Map<String, List<String[]>>> stringMapEntry : hosts.entrySet()) {
+        for (Map.Entry<String, Map<String, TcpProxyMapping>> stringMapEntry : hosts.entrySet()) {
             server.putChannelHosts(stringMapEntry.getKey(), stringMapEntry.getValue());
             server.start(server, stringMapEntry.getValue());
             ChannelProxyConfigEnum.RUNTIME_ENV.update(stringMapEntry.getKey(), env, proxyConfigMapper);
+        }
+    }
+
+    private void putConfigToRedis(String channel) {
+        if (!Constants.ASTERISK.equals(channel)) {
+            proxyConfigMapper.findByConfKey(channel, Constants.DEFAULT_FIELD_LENGTH_KEY).ifPresent(config -> {
+                SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channel + Constants.DEFAULT_FIELD_LENGTH_KEY, config.getConfVal());
+            });
+        } else {
+            List<ChannelProxyConfig> channelProxyConfigs = proxyConfigMapper.distinctChannelConfig(Constants.DEFAULT_FIELD_LENGTH_KEY);
+            if (CollectionUtil.isNotEmpty(channelProxyConfigs)) {
+                for (ChannelProxyConfig channelProxyConfig : channelProxyConfigs) {
+                    SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channelProxyConfig.getChannel().toUpperCase() + Constants.DEFAULT_FIELD_LENGTH_KEY, channelProxyConfig.getConfVal());
+                }
+            }
         }
     }
 
@@ -114,21 +131,26 @@ public class TcpProxyController {
         if (StringUtil.isNotEmpty(channel)) {
             channel = channel.toUpperCase();
         }
+        putConfigToRedis(channel);
         log.info("Changing environment");
         try {
-            Map<String, Map<String, List<String[]>>> emvHosts = getHostsByEmv(channel, env);
-            Map<String, List<String[]>> channelEmvHosts = Constants.ASTERISK.equals(channel) ? emvHosts.values().stream()
+            Map<String, Map<String, TcpProxyMapping>> emvHosts = getHostsByEmv(channel, env);
+            Map<String, TcpProxyMapping> channelEmvHosts = Constants.ASTERISK.equals(channel) ? emvHosts.values().stream()
                     .flatMap(map -> map.entrySet().stream())
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)) : emvHosts.get(channel);
-            Map<String, Map<String, List<String[]>>> hosts = server.getHosts();
-            Map<String, List<String[]>> channelNowHosts = Constants.ASTERISK.equals(channel) ? hosts.values().stream()
+            Map<String, Map<String, TcpProxyMapping>> hosts = server.getHosts();
+            Map<String, TcpProxyMapping> channelNowHosts = Constants.ASTERISK.equals(channel) ? hosts.values().stream()
                     .flatMap(map -> map.entrySet().stream())
                     .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)) : hosts.get(channel);
             Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts = server.getTargetProxyHandlerForHosts();
+            channelNowHosts = CollectionUtil.isEmpty(channelNowHosts) ? Collections.EMPTY_MAP : channelNowHosts;
+            channelEmvHosts = CollectionUtil.isEmpty(channelEmvHosts) ? Collections.EMPTY_MAP : channelEmvHosts;
             if (CollectionUtil.isEmpty(channelEmvHosts) && CollectionUtil.isEmpty(channelNowHosts)) return;
-            List<String> needStartServerPort = CollectionUtil.isEmpty(channelNowHosts) ? channelEmvHosts.keySet().stream().collect(Collectors.toList()) : channelEmvHosts.keySet().stream().filter(key -> !channelNowHosts.keySet().contains(key)).collect(Collectors.toList());
-            List<String> needStopServerPort = CollectionUtil.isEmpty(channelEmvHosts) ? channelNowHosts.keySet().stream().collect(Collectors.toList()) : channelNowHosts.keySet().stream().filter(key -> !channelEmvHosts.keySet().contains(key)).collect(Collectors.toList());
-            Map<String, List<String[]>> needStartServer = channelEmvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            Map<String, TcpProxyMapping> finalChannelNowHosts = channelNowHosts;
+            List<String> needStartServerPort = CollectionUtil.isEmpty(channelNowHosts) ? channelEmvHosts.keySet().stream().collect(Collectors.toList()) : channelEmvHosts.keySet().stream().filter(key -> !finalChannelNowHosts.keySet().contains(key)).collect(Collectors.toList());
+            Map<String, TcpProxyMapping> finalChannelEmvHosts = channelEmvHosts;
+            List<String> needStopServerPort = CollectionUtil.isEmpty(channelEmvHosts) ? channelNowHosts.keySet().stream().collect(Collectors.toList()) : channelNowHosts.keySet().stream().filter(key -> !finalChannelEmvHosts.keySet().contains(key)).collect(Collectors.toList());
+            Map<String, TcpProxyMapping> needStartServer = channelEmvHosts.entrySet().stream().filter(entry -> needStartServerPort.contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             log.info("need start server:{}", JSON.toJSONString(needStartServer));
             log.info("need stop server:{}", JSON.toJSONString(needStopServerPort));
             if (CollectionUtil.isNotEmpty(needStopServerPort)) {
@@ -162,14 +184,14 @@ public class TcpProxyController {
      * @param env
      * @return channe :{ port : [clientPort,targetIP,targetPort]}
      */
-    private Map<String, Map<String, List<String[]>>> getHostsByEmv(String channel, String env) {
+    private Map<String, Map<String, TcpProxyMapping>> getHostsByEmv(String channel, String env) {
         String ipAddress = getSeverAddress();
         String tempChannel = channel;
         if (Constants.ASTERISK.equals(channel)) {
             tempChannel = null;
         }
         List<TcpProxyMapping> tcpProxyMappings = mappingMapper.selectMappingWithTargets(tempChannel, env, ipAddress, Constants.MYBATIS_LOCAL_CLIENT_PORT_SPLIT_REGEX);
-        Map<String, Map<String, List<String[]>>> channelPortAddress = tcpProxyMappings.stream().collect(Collectors.groupingBy(TcpProxyMapping::getChannel, Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections)));
+        Map<String, Map<String, TcpProxyMapping>> channelPortAddress = tcpProxyMappings.stream().collect(Collectors.groupingBy(TcpProxyMapping::getChannel, Collectors.toMap(TcpProxyMapping::getLocalPort, Function.identity())));
         return channelPortAddress;
 //        return tcpProxyMappings.stream().collect(Collectors.toMap(TcpProxyMapping::getLocalPort, TcpProxyMapping::getTargetConnections));
     }
@@ -213,15 +235,18 @@ public class TcpProxyController {
         if (StringUtil.isNotEmpty(channel)) {
             channel = channel.toUpperCase();
         }
-        log.info("reloading env: {} start ", env);
+        log.info("reloading {} env: {} start ", channel, env);
         Long start = System.currentTimeMillis();
         if (server == null) {
             log.info("server is null ,start netty server");
             start(env);
         } else {
             if (!Constants.ASTERISK.equals(channel) && env.equals(ChannelProxyConfigEnum.RUNTIME_ENV.getKeyVal(channel, proxyConfigMapper))) {
-                Map<String, List<String[]>> hostsByEmv = getHostsByEmv(channel, env).get(channel);
-                Map<String, List<String[]>> channelHosts = server.getHosts().get(channel);
+                putConfigToRedis(channel);
+                Map<String, TcpProxyMapping> hostsByEmv = getHostsByEmv(channel, env).get(channel);
+                Map<String, TcpProxyMapping> channelHosts = server.getHosts().get(channel);
+                hostsByEmv = CollectionUtil.isEmpty(hostsByEmv) ? Collections.EMPTY_MAP : hostsByEmv;
+                channelHosts = CollectionUtil.isEmpty(channelHosts) ? Collections.EMPTY_MAP : channelHosts;
                 Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts = server.getTargetProxyHandlerForHosts();
                 if (CollectionUtil.isEmpty(hostsByEmv)) {
                     if (CollectionUtil.isEmpty(channelHosts)) {
@@ -234,10 +259,20 @@ public class TcpProxyController {
                     server.getHosts().remove(channel);
                     return;
                 }
+                if (CollectionUtil.isEmpty(channelHosts)) {
+
+                    for (String port : channelHosts.keySet()) {
+                        server.closeChannelConnects(port);
+                    }
+                    server.getHosts().remove(channel);
+                    return;
+                }
                 log.info("refresh {} config：{}", env, JSON.toJSONString(hostsByEmv));
                 //处理新启的服务端
-                Map<String, List<String[]>> needStartServer = hostsByEmv.entrySet().stream().filter(entry -> !channelHosts.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-                List<String> needStopServerPort = channelHosts.keySet().stream().filter(port -> !hostsByEmv.keySet().contains(port)).collect(Collectors.toList());
+                Map<String, TcpProxyMapping> finalChannelHosts = channelHosts;
+                Map<String, TcpProxyMapping> needStartServer = CollectionUtil.isEmpty(channelHosts) ? hostsByEmv : hostsByEmv.entrySet().stream().filter(entry -> !finalChannelHosts.keySet().contains(entry.getKey())).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                Map<String, TcpProxyMapping> finalHostsByEmv = hostsByEmv;
+                List<String> needStopServerPort = CollectionUtil.isEmpty(channelHosts) ? Collections.EMPTY_LIST : channelHosts.keySet().stream().filter(port -> !finalHostsByEmv.keySet().contains(port)).collect(Collectors.toList());
                 //处理关闭的服务端
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
@@ -250,7 +285,7 @@ public class TcpProxyController {
                 changeEnv(channel, env);
             }
         }
-        log.info("reloading env: {} cost {}", env, System.currentTimeMillis() - start);
+        log.info("reloading channel:{} env: {} cost {}", channel, env, System.currentTimeMillis() - start);
     }
 
     /**
@@ -260,12 +295,12 @@ public class TcpProxyController {
      * @param targetProxyHandlerForHosts
      * @return
      */
-    private static void closeNonConfig(Map<String, List<String[]>> hostsByEmv, Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts) {
-        for (Map.Entry<String, List<String[]>> stringListEntry : hostsByEmv.entrySet()) {
+    private static void closeNonConfig(Map<String, TcpProxyMapping> hostsByEmv, Map<String, ConcurrentLinkedQueue<ProxyHandler>> targetProxyHandlerForHosts) {
+        for (Map.Entry<String, TcpProxyMapping> stringListEntry : hostsByEmv.entrySet()) {
             if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
                 continue;
             }
-            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))).forEach(handler -> {
+            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().getTargetConnections().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))).forEach(handler -> {
                 log.info("close non config target address:{}", handler.getTargetServerAddress());
                 handler.initiativeReconnected();
             });

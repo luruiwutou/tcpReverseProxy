@@ -22,7 +22,7 @@ public class TcpProxyScheduler {
     @Autowired
     ProxyConfigMapper proxyConfigMapper;
 
-    @Scheduled(cron = "00 */3 * * * ?")
+//    @Scheduled(cron = "00 */3 * * * ?")
     public void reportTask() throws Exception {
         logger.info("scheduled reload emv");
 

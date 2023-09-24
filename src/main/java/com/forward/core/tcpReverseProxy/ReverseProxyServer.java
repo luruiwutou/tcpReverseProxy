@@ -1,21 +1,35 @@
 package com.forward.core.tcpReverseProxy;
 
 import cn.hutool.core.collection.CollectionUtil;
+import cn.hutool.core.util.HexUtil;
 import cn.hutool.core.util.ObjectUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
 import com.forward.core.tcpReverseProxy.handler.CustomizeLengthFieldBasedFrameDecoder;
+import com.forward.core.tcpReverseProxy.handler.CustomizeSslHandler;
+import com.forward.core.tcpReverseProxy.handler.HeadTraceIdHandler;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
+import com.forward.core.tcpReverseProxy.interfaces.FourConsumer;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
+import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.logging.LogLevel;
+import io.netty.handler.logging.LoggingHandler;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
@@ -23,12 +37,17 @@ import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
+import java.io.File;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * TCP反向代理服务
@@ -85,8 +104,9 @@ public class ReverseProxyServer {
         });
     }
 
-    public void start(ReverseProxyServer server, Map<String, TcpProxyMapping> hosts) {
+    public List<String> start(ReverseProxyServer server, Map<String, TcpProxyMapping> hosts) {
         log.info("start server channel :{}", JSON.toJSONString(hosts));
+        List<String> errorServerPorts=new ArrayList<>();
         for (Map.Entry<String, TcpProxyMapping> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
             if (server.getServerChannels().keySet().contains(host.getKey())) {
@@ -94,19 +114,22 @@ public class ReverseProxyServer {
                 continue;
             }
             try {
-                server.bootstrap(getTargetFunction(), targetProxyHandler, getCustomizeChannel()).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
-                    final Channel channel = future.channel();
-                    log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
-                    // 将Channel对象存储到serverChannels中
-                    server.getServerChannels().put(host.getKey(), channel);
-//                    server.getFieldLengthMap().put(host.getKey(), fieldLength);
+                server.bootstrap(getTargetFunction(), targetProxyHandler, putCustomizeChannelHandler(), getNowEnv()).bind(Integer.valueOf(host.getKey())).addListener((ChannelFuture future) -> {
+                    if (future.isSuccess()) {
+                        final Channel channel = future.channel();
+                        log.info("---Server is started and listening at---{}----proxy target :{}", channel.localAddress(), JSON.toJSONString(host.getValue()));
+                        // 将Channel对象存储到serverChannels中
+                        server.getServerChannels().put(host.getKey(), channel);
+                    }
                 }).sync().await();
             } catch (Exception e) {
+                errorServerPorts.add(host.getKey());
                 log.info("port:{} start failed, error msg:{}", host.getKey(), e.getMessage());
                 log.error("full error info", e);
             }
             server.getTargetProxyHandlerForHosts().put(host.getKey(), targetProxyHandler);
         }
+        return errorServerPorts;
     }
 
 
@@ -166,48 +189,85 @@ public class ReverseProxyServer {
     private Function<String, List<String[]>> getTargetFunction() {
         return (port) -> {
             //与渠道无关，所以排除渠道的影响，进行合并处理
-            List<String[]> targetHost = this.hosts.values().stream()
-                    .flatMap(map -> map.entrySet().stream())
-                    .collect(Collectors.toMap(
-                            Map.Entry::getKey,
-                            entry -> entry.getValue().getTargetConnections(),
-                            (existingValue, newValue) -> newValue
-                    )).get(port);
+            List<String[]> targetHost = this.hosts.values().stream().flatMap(map -> map.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getTargetConnections(), (existingValue, newValue) -> newValue)).get(port);
 
             log.info("--------------服务端口：{},监听服务为：{}------------------", port, JSON.toJSONString(targetHost));
             return targetHost;
         };
     }
 
-    private Function<String, Map<String, ChannelHandler>> getCustomizeChannel() {
-        return (port) -> {
-            //与渠道无关，所以排除渠道的影响，进行合并处理
+    private Function<String, String> getNowEnv() {
+        return (port) -> this.hosts.values().stream().flatMap(map -> map.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getEnv(), (existingValue, newValue) -> newValue)).get(port);
+    }
 
-            Map<String, List<String>> result = this.hosts.entrySet().stream()
-                    .collect(Collectors.toMap(
-                            Map.Entry::getKey,
-                            entry -> entry.getValue().entrySet().stream()
-                                    .map(Map.Entry::getKey)
-                                    .collect(Collectors.toList())
-                    ));
-            Map<String, ChannelHandler> map = new HashMap<>();
-            // 在 result 中查找包含 'port' 的列表并输出对应的键
-            for (Map.Entry<String, List<String>> entry : result.entrySet()) {
-                String channelName = entry.getKey();
-                List<String> mappingKeys = entry.getValue();
-                if (mappingKeys.contains(port)) {
-                    log.info("Get channel {} config ", channelName);
-                    Object fieldLengthObj = SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().getStrValueByKey(channelName + Constants.DEFAULT_FIELD_LENGTH_KEY);
-                    if (ObjectUtil.isNotEmpty(fieldLengthObj)) {
-                        String[] fields = fieldLengthObj.toString().split(",");
-                        map.put("customizeLengthFieldBasedFrameDecoder", new CustomizeLengthFieldBasedFrameDecoder(Integer.valueOf(fields[0]), Integer.valueOf(fields[1]), Integer.valueOf(fields[2]), Integer.valueOf(fields[3]), Integer.valueOf(fields[4])));
+    public SslContext createServerSslContext(String env, String channel) throws Exception {
+        return SslContextBuilder.forServer(new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_PATH)), new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_KEY_PATH))).build();
+    }
+
+
+    public SslContext createClientSslContext(String env, String channel) throws Exception {
+        return SslContextBuilder.forClient().trustManager(new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_PATH))).build();
+    }
+
+    private FourConsumer<String, String, String, SocketChannel> putCustomizeChannelHandler() {
+        return (env, cOrS, port, channel) -> {
+            //与渠道无关，所以排除渠道的影响，进行合并处理
+            Map<String, List<String>> result = this.hosts.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().entrySet().stream().map(Map.Entry::getKey).collect(Collectors.toList())));
+            if (Constants.SERVER.equals(cOrS)) {
+                // 在 result 中查找包含 'port' 的列表并输出对应的键
+                for (Map.Entry<String, List<String>> entry : result.entrySet()) {
+                    String channelName = entry.getKey();
+                    List<String> mappingKeys = entry.getValue();
+                    if (mappingKeys.contains(port)) {
+                        channel.pipeline().addFirst("headTraceIdHandler", new HeadTraceIdHandler());
+                        String openssl = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.PROXY_SERVER_OPEN_SSL);
+                        log.info("Get channel {} ssl config :{}", channelName, openssl);
+                        if (ObjectUtil.isNotEmpty(openssl) && Constants.TRUE_STR.equals(openssl)) {
+                            try {
+                                channel.pipeline().addFirst("ssl/tls", new CustomizeSslHandler(createServerSslContext(env, channelName).newEngine(channel.alloc())));
+                            } catch (Exception e) {
+                                log.info("server add ssl handler failed", e);
+                            }
+                        }
+                        String fieldLengthObj = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.DEFAULT_FIELD_LENGTH_KEY);
+                        log.info("Get channel {} length field config :{}", channelName, fieldLengthObj);
+                        if (ObjectUtil.isNotEmpty(fieldLengthObj)) {
+                            String[] fields = fieldLengthObj.toString().split(",");
+                            channel.pipeline().addLast("customizeLengthFieldBasedFrameDecoder", new CustomizeLengthFieldBasedFrameDecoder(Integer.valueOf(fields[0]), Integer.valueOf(fields[1]), Integer.valueOf(fields[2]), Integer.valueOf(fields[3]), Integer.valueOf(fields[4])));
+                        }
+                    }
+                }
+            } else if (Constants.CLIENT.equals(cOrS)) {
+                // 在 result 中查找包含 'port' 的列表并输出对应的键
+                for (Map.Entry<String, List<String>> entry : result.entrySet()) {
+                    String channelName = entry.getKey();
+                    List<String> mappingKeys = entry.getValue();
+                    if (mappingKeys.contains(port)) {
+                        channel.pipeline().addFirst("headTraceIdHandler", new HeadTraceIdHandler());
+                        String fieldLengthObj = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.DEFAULT_FIELD_LENGTH_KEY);
+                        log.info("Get channel {} config :{}", channelName, fieldLengthObj);
+                        if (StringUtil.isNotEmpty(fieldLengthObj)) {
+                            String[] fields = fieldLengthObj.toString().split(",");
+                            channel.pipeline().addLast("customizeLengthFieldBasedFrameDecoder", new CustomizeLengthFieldBasedFrameDecoder(Integer.valueOf(fields[0]), Integer.valueOf(fields[1]), Integer.valueOf(fields[2]), Integer.valueOf(fields[3]), Integer.valueOf(fields[4])));
+                        }
+                        String openssl = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.PROXY_CLIENT_OPEN_SSL);
+                        if (ObjectUtil.isNotEmpty(openssl) && Constants.TRUE_STR.equals(openssl)) {
+                            try {
+                                channel.pipeline().addFirst("ssl/tls", new CustomizeSslHandler(createClientSslContext(env, channelName).newEngine(channel.alloc())));
+                            } catch (Exception e) {
+                                log.info("client add ssl handler failed", e);
+                            }
+                        }
                     }
                 }
             }
-            return map;
+
+
         };
     }
-//                        ch.pipeline().addLast(new CustomizeLengthFieldBasedFrameDecoder(10240, 0, 4, 0, 0));
+
+    private RedisService redisService = SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton();
+
 
     /**
      * 关闭对转发目标客户端的连接
@@ -232,131 +292,133 @@ public class ReverseProxyServer {
     }
 
 
-    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers, Function<String, Map<String, ChannelHandler>> customizeHandler) {
+    private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers, FourConsumer<String, String, String, SocketChannel> putCustomizeChannelHandler, Function<String, String> getNowEnv) {
         ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).childHandler(new ChannelInitializer<SocketChannel>() {
-            private String targetHost;
-            private int targetPort;
-            private String remoteClientPort = "";
-            private String localClientPort = "";
-            private Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
-            private List<String[]> targetConnections = new ArrayList<>();
+        bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).option(ChannelOption.SO_BACKLOG, 128) //设置线程队列中等待连接的个数
+                .childOption(ChannelOption.SO_KEEPALIVE, true).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 50000) // 设置连接超时时间为50秒
+                .childHandler(new ChannelInitializer<SocketChannel>() {
+                    private String targetHost;
+                    private int targetPort;
+                    private String remoteClientPort = "";
+                    private String localClientPort = "";
+                    private Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
+                    private List<String[]> targetConnections = new ArrayList<>();
 
-            private Supplier<Map<String, ChannelHandler>> getCustomizeTargetHandlerMap() {
-                return () -> customizeHandler.apply(remoteClientPort);
-            }
+                    private Consumer<SocketChannel> putCustomizeTargetChannelHandler() {
+                        return (socketChannel) -> putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.CLIENT, remoteClientPort, socketChannel);
+                    }
 
-            @Override
-            protected void initChannel(SocketChannel ch) {
-                String traceId = SnowFlake.getTraceId();
-                MDC.put(Constants.TRACE_ID, traceId);
-                remoteClientPort = String.valueOf(ch.localAddress().getPort());
-                boolean connectionFlag = setTarget();
-                if (!connectionFlag) {
-                    ch.close();
-                }
-                Map<String, ChannelHandler> customizeHandlerMap = customizeHandler.apply(remoteClientPort);
-                if (CollectionUtil.isNotEmpty(customizeHandlerMap)) {
-                    customizeHandlerMap.forEach((key, value) -> ch.pipeline().addLast(key, value));
-                }
-                log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
-                if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
-                    if (StringUtil.isNotEmpty(localClientPort)) {
-                        Optional<ProxyHandler> optionalProxyHandler;
-                        if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
-                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
+                    @Override
+                    protected void initChannel(SocketChannel ch) throws Exception {
+                        String traceId = SnowFlake.getTraceId();
+                        MDC.put(Constants.TRACE_ID, traceId);
+                        ch.attr(Constants.TRACE_ID_KEY).set(traceId);
+                        remoteClientPort = String.valueOf(ch.localAddress().getPort());
+                        boolean connectionFlag = setTarget();
+                        if (!connectionFlag) {
+                            ch.close();
+                        }
+//                        if (CollectionUtil.isNotEmpty(customizeHandlerMap)) {
+//                            customizeHandlerMap.forEach((key, value) -> ch.pipeline().addLast(key, value));
+//                        }
+                        putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.SERVER, remoteClientPort, ch);
+                        log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
+                        if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
+                            if (StringUtil.isNotEmpty(localClientPort)) {
+                                Optional<ProxyHandler> optionalProxyHandler;
+                                if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
+                                    optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
+                                } else {
+                                    optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
+                                }
+                                if (optionalProxyHandler.isPresent()) {
+                                    ch.pipeline().addLast(optionalProxyHandler.get());
+                                    return;
+                                }
+                            }
+
+                        }
+                        ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime(), putCustomizeTargetChannelHandler());
+                        ch.pipeline().addLast(proxyHandler);
+                        ch.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG)).fireChannelReadComplete();
+                    }
+
+
+                    private Function<String[], String[]> getNewTarget() {
+                        return (target) -> {
+                            setTarget();
+                            if (CollectionUtils.isEmpty(targetConnections)) {
+                                return target;
+                            }
+                            if (targetConnections.size() == 1) {
+                                return targetConnections.get(0);
+                            }
+                            List<String[]> otherTarget = targetConnections.stream().filter(a -> !a[1].equals(target[1])).collect(Collectors.toList());
+                            Random random = new Random();
+                            int index = random.nextInt(otherTarget.size());
+                            String[] result = otherTarget.get(index);
+
+                            return result;
+                        };
+                    }
+
+                    private Supplier<Integer> getReconnectTime() {
+                        setTarget();
+                        return () -> 5 * targetConnections.size();
+                    }
+
+                    //判断是否能够建立有效连接
+                    private boolean setTarget() {
+                        targetConnections = getConnections.apply(remoteClientPort);
+                        if (CollectionUtils.isEmpty(targetConnections)) {
+                            return false;
+                        }
+                        // 寻找连接数最少的目标服务器
+                        // 选择使用计数最少的目标服务器
+                        String selectedTarget = null;
+                        String selectedClientPort = null;
+                        int minConnectionCount = Integer.MAX_VALUE;
+                        for (String[] targetStr : targetConnections) {
+                            String[] target = targetStr[1].split(":");
+                            String targetHost = target[0];
+                            String targetPort = target[1];
+                            String targetServerId = targetHost + ":" + targetPort;
+                            int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
+                            if (connectionCount < minConnectionCount) {
+                                selectedTarget = targetServerId;
+                                selectedClientPort = targetStr[0];
+                                minConnectionCount = connectionCount;
+                            }
+                        }
+
+                        if (selectedTarget != null) {
+                            // 执行相关操作，如使用 selectedTarget 进行转发或其他处理
+                            log.info("Selected target: {}", selectedTarget);
+                            String[] split = selectedTarget.split(":");
+                            localClientPort = selectedClientPort;
+                            targetHost = split[0];
+                            targetPort = Integer.valueOf(split[1]);
                         } else {
-                            optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
+                            // 处理未找到可用目标服务器的情况
+                            localClientPort = targetConnections.get(0)[0];
+                            String[] split = targetConnections.get(0)[1].split(":");
+                            targetHost = split[0];
+                            targetPort = Integer.valueOf(split[1]);
                         }
-                        if (optionalProxyHandler.isPresent()) {
-                            ch.pipeline().addLast(optionalProxyHandler.get());
-                            return;
-                        }
+                        return true;
                     }
 
-                }
-                ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime(), getCustomizeTargetHandlerMap());
-                ch.pipeline().addLast(proxyHandler);
-            }
-
-
-            private Function<String[], String[]> getNewTarget() {
-                return (target) -> {
-                    setTarget();
-                    if (CollectionUtils.isEmpty(targetConnections)) {
-                        return target;
+                    public String getTargetServerAddress() {
+                        return targetHost + ":" + targetPort;
                     }
-                    if (targetConnections.size() == 1) {
-                        return targetConnections.get(0);
-                    }
-                    List<String[]> otherTarget = targetConnections.stream().filter(a -> !a[1].equals(target[1])).collect(Collectors.toList());
-                    Random random = new Random();
-                    int index = random.nextInt(otherTarget.size());
-                    String[] result = otherTarget.get(index);
-
-                    return result;
-                };
-            }
-
-            private Supplier<Integer> getReconnectTime() {
-                setTarget();
-                return () -> 5 * targetConnections.size();
-            }
-
-            //判断是否能够建立有效连接
-            private boolean setTarget() {
-                targetConnections = getConnections.apply(remoteClientPort);
-                if (CollectionUtils.isEmpty(targetConnections)) {
-                    return false;
-                }
-                // 寻找连接数最少的目标服务器
-                // 选择使用计数最少的目标服务器
-                String selectedTarget = null;
-                String selectedClientPort = null;
-                int minConnectionCount = Integer.MAX_VALUE;
-                for (String[] targetStr : targetConnections) {
-                    String[] target = targetStr[1].split(":");
-                    String targetHost = target[0];
-                    String targetPort = target[1];
-                    String targetServerId = targetHost + ":" + targetPort;
-                    int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
-                    if (connectionCount < minConnectionCount) {
-                        selectedTarget = targetServerId;
-                        selectedClientPort = targetStr[0];
-                        minConnectionCount = connectionCount;
-                    }
-                }
-
-                if (selectedTarget != null) {
-                    // 执行相关操作，如使用 selectedTarget 进行转发或其他处理
-                    log.info("Selected target: {}", selectedTarget);
-                    String[] split = selectedTarget.split(":");
-                    localClientPort = selectedClientPort;
-                    targetHost = split[0];
-                    targetPort = Integer.valueOf(split[1]);
-                } else {
-                    // 处理未找到可用目标服务器的情况
-                    localClientPort = targetConnections.get(0)[0];
-                    String[] split = targetConnections.get(0)[1].split(":");
-                    targetHost = split[0];
-                    targetPort = Integer.valueOf(split[1]);
-                }
-                return true;
-            }
-
-            public String getTargetServerAddress() {
-                return targetHost + ":" + targetPort;
-            }
-        });
+                });
         return bootstrap;
 
     }
 
 
     public void shutDown() {
-        Set<String> keySet = hosts.values().stream()
-                .flatMap(map -> map.entrySet().stream())
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)).keySet();
+        Set<String> keySet = hosts.values().stream().flatMap(map -> map.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (existingValue, newValue) -> newValue)).keySet();
         if (CollectionUtil.isNotEmpty(keySet)) {
             for (String port : keySet) {
                 closeChannelConnects(port);

@@ -19,7 +19,7 @@
     <select id="findByConfKey" resultType="com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig">
         select
         <include refid="basicColumnSql"/>
-        from gateway.proxy_config
+        from proxy_config
         <where>
             <trim prefixOverrides="AND">
                 <if test="confKey != null and confKey != ''">
@@ -36,7 +36,7 @@
     <select id="distinctChannelConfig" resultType="com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig">
         select
         distinct <include refid="basicColumnSql"/>
-        from gateway.proxy_config
+        from proxy_config
         <where>
             <trim prefixOverrides="AND">
                 <if test="confKey != null and confKey != ''">
@@ -47,7 +47,7 @@
     </select>
 
     <update id="updChannelEnvConf" >
-        update gateway.proxy_config set conf_Val = #{confVal}
+        update proxy_config set conf_Val = #{confVal}
         <where>
             <trim prefixOverrides="AND">
                 <if test="confKey != null and confKey != ''">

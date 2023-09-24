@@ -1,8 +1,15 @@
 package com.forward.core.tcpReverseProxy.redis;
 
 import cn.hutool.core.util.HexUtil;
+import cn.hutool.core.util.ReferenceUtil;
+import com.forward.core.constant.Constants;
+import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig;
+import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
+import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -13,6 +20,7 @@ import org.springframework.stereotype.Component;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 @Component
@@ -24,9 +32,33 @@ public class RedisService {
     RedisTemplate<String, byte[]> redisTemplateByteArray;
     @Autowired
     StringRedisTemplate redisTemplateStr;
+    @Autowired
+    ProxyConfigMapper proxyConfigMapper;
 
-    public Object getStrValueByKey(String key) {
+    public String getStrValueByKey(String key) {
         return redisTemplateStr.opsForValue().get(key);
+    }
+
+    public String getStrValueByKeyAndChanel(String channel, String suffix) {
+        String result = redisTemplateStr.opsForValue().get(channel + Constants.UNDERLINE + suffix);
+        if (StringUtil.isNotEmpty(result)) {
+            return result;
+        }
+        Optional<ChannelProxyConfig> byConfKey = proxyConfigMapper.findByConfKey(channel, suffix);
+        if (byConfKey.isPresent()) {
+            setStrValue(channel + Constants.UNDERLINE + suffix, byConfKey.get().getConfVal());
+            result = byConfKey.get().getConfVal();
+        }
+        return result;
+    }
+
+    public String getStrValueByEnvAndChannelAndKey(String env, String channel, String suffix) {
+        if (StringUtil.isEmpty(env)) {
+            return getStrValueByKeyAndChanel(channel, suffix);
+        } else {
+            return getStrValueByKeyAndChanel(channel, env + Constants.UNDERLINE + suffix);
+        }
+
     }
 
     public void setStrValue(String key, String value) {
@@ -100,10 +132,9 @@ public class RedisService {
 
     public byte[] changeMessage(ByteBuf byteBuf) {
         // 将ByteBuf转换为字节数组
-        byte[] byteArray = new byte[byteBuf.readableBytes()];
-        byteBuf.readBytes(byteArray);
-        byteBuf.release();
-        return byteArray;
+        byte[] bytes = ByteBufUtil.getBytes(byteBuf);
+        ReferenceCountUtil.safeRelease(byteBuf);
+        return bytes;
 
     }
 

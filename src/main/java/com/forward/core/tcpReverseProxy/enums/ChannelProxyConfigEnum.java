@@ -12,7 +12,7 @@ import java.util.Optional;
  * 渠道代理配置枚举
  */
 public enum ChannelProxyConfigEnum {
-    DEFAULT_ENV("DEFAULT_ENV", "SIT", "默认环境"),
+    DEFAULT_ENV("DEFAULT_ENV", "UAT", "默认环境"),
     RUNTIME_ENV("RUNTIME_ENV", "SIT", "运行时环境"),
     ;
 

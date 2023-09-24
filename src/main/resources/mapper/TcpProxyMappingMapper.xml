@@ -13,6 +13,7 @@
         <result column="channel" property="channel"/>
         <result column="local_host" property="localHost"/>
         <result column="local_port" property="localPort"/>
+        <result column="env" property="env"/>
         <result column="targetConnections" property="targetConnections"
                 typeHandler="com.forward.core.tcpReverseProxy.mybatis.StringArrayListTypeHandler"/>
         <!--      <collection property="target" ofType="java.lang.String">-->
@@ -25,8 +26,9 @@
         SELECT  CASE
         WHEN m.channel IS NULL OR m.channel = '' THEN '*'
         ELSE m.channel
-        END AS channel, m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('${regex}',m.local_client_port,CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections
-        FROM gateway.tcp_proxy_mapping m
+        END AS channel, m.local_host, m.local_port, GROUP_CONCAT(CONCAT_WS('${regex}',IFNULL(m.local_client_port,''),CONCAT_WS(':', m.target_host, m.target_port))) AS targetConnections,
+        m.env
+        FROM tcp_proxy_mapping m
         <where>
             <trim prefixOverrides="AND">
                 <if test="env != null and env != ''">
@@ -40,7 +42,7 @@
                 </if>
             </trim>
         </where>
-        GROUP BY m.local_host, m.local_port,channel
+        GROUP BY m.local_host, m.local_port,channel,m.env
     </select>
     <!-- 使用 ResultMap 进行查询 -->
     <!--    <select id="selectProxyMappings" resultMap="ProxyMappingResultMap">-->

@@ -3,6 +3,21 @@ spring:
     name: tcp-proxy
   profiles:
     active: dev
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    type: com.alibaba.druid.pool.DruidDataSource
+    initialSize: 3   # 初始化连接数
+    maxActive: 10    # 最大连接数
+    minIdle: 3       # 最小空闲连接数
+    maxWait: 60000   # 最大等待时间（毫秒）
+    validationQuery: SELECT 1 FROM DUAL   # 验证连接的SQL语句
+    testWhileIdle: true  # 空闲时是否进行连接验证
+    testOnBorrow: false  # 借用连接时是否进行连接验证
+    testOnReturn: false  # 归还连接时是否进行连接验证
+    poolPreparedStatements: true   # 是否缓存PreparedStatement
+    maxPoolPreparedStatementPerConnectionSize: 20  # 每个连接缓存PreparedStatement的最大数量
+    filters: stat,wall,log4j   # 连接池过滤器，可以根据需要添加
+    connectionProperties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000  # 连接属性
 
 server:
   port: 8005
@@ -17,3 +32,10 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
   show-actuator: true
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*" # 所有端点都可访问

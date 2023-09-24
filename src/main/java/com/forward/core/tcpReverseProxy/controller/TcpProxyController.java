@@ -25,9 +25,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -96,8 +94,10 @@ public class TcpProxyController {
             return;
         }
         for (Map.Entry<String, Map<String, TcpProxyMapping>> stringMapEntry : hosts.entrySet()) {
-            server.putChannelHosts(stringMapEntry.getKey(), stringMapEntry.getValue());
-            server.start(server, stringMapEntry.getValue());
+            List<String> errorServerPorts = server.start(server, stringMapEntry.getValue());
+            server.putChannelHosts(stringMapEntry.getKey(), stringMapEntry.getValue().entrySet().stream().filter(entry ->
+                    !errorServerPorts.contains(entry.getKey())
+            ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
             ChannelProxyConfigEnum.RUNTIME_ENV.update(stringMapEntry.getKey(), env, proxyConfigMapper);
         }
     }
@@ -158,15 +158,22 @@ public class TcpProxyController {
                     server.closeChannelConnects(port);
                 }
             }
+            List<String> notStartServerPorts = new ArrayList<>();
             if (CollectionUtil.isNotEmpty(needStartServer)) {
-                server.start(server, needStartServer);
+                notStartServerPorts = server.start(server, needStartServer);
             }
+            List<String> finalNotStartServerPorts = notStartServerPorts;
             if (Constants.ASTERISK.equals(channel)) {
                 //全部替换
+                for (Map.Entry<String, Map<String, TcpProxyMapping>> entry : emvHosts.entrySet()) {
+                    entry.getValue().entrySet().removeIf(m -> finalNotStartServerPorts.contains(m.getKey()));
+                }
                 server.setHosts(emvHosts);
             } else {
                 //变更渠道
-                server.putChannelHosts(channel, channelEmvHosts);
+                server.putChannelHosts(channel, channelEmvHosts.entrySet().stream().filter(entry ->
+                        !finalNotStartServerPorts.contains(entry.getKey())
+                ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
             }
             ChannelProxyConfigEnum.RUNTIME_ENV.update(channel, env, proxyConfigMapper);
             closeNonConfig(channelEmvHosts, targetProxyHandlerForHosts);
@@ -265,7 +272,6 @@ public class TcpProxyController {
                         server.closeChannelConnects(port);
                     }
                     server.getHosts().remove(channel);
-                    return;
                 }
                 log.info("refresh {} config：{}", env, JSON.toJSONString(hostsByEmv));
                 //处理新启的服务端
@@ -277,10 +283,14 @@ public class TcpProxyController {
                 for (String port : needStopServerPort) {
                     server.closeChannelConnects(port);
                 }
-                server.start(server, needStartServer);
+                List<String> notStartServerPorts = server.start(server, needStartServer);
                 //变更渠道
-                server.putChannelHosts(channel, hostsByEmv);
-                closeNonConfig(hostsByEmv, targetProxyHandlerForHosts);
+                Map<String, TcpProxyMapping> proxyMappingMap = hostsByEmv.entrySet().stream().filter(entry ->
+                        !notStartServerPorts.contains(entry.getKey())
+                ).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+                server.putChannelHosts(channel, proxyMappingMap);
+                closeNonConfig(proxyMappingMap, targetProxyHandlerForHosts);
             } else {
                 changeEnv(channel, env);
             }

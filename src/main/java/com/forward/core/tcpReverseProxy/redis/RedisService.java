@@ -1,7 +1,5 @@
 package com.forward.core.tcpReverseProxy.redis;
 
-import cn.hutool.core.util.HexUtil;
-import cn.hutool.core.util.ReferenceUtil;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig;
@@ -9,7 +7,6 @@ import com.forward.core.tcpReverseProxy.mapper.ProxyConfigMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
-import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
@@ -119,8 +116,8 @@ public class RedisService {
             return;
         }
         if (msg instanceof ByteBuf) {
+            log.info("receive from :{} ,write Hex msg to redis :{}", key, ByteBufUtil.hexDump((ByteBuf) msg));
             byte[] bytes = changeMessage((ByteBuf) msg);
-            log.info("receive from :{} ,write Hex msg to redis :{}", key, HexUtil.encodeHexStr(bytes));
             this.push(key, bytes);
         }
     }
@@ -133,7 +130,7 @@ public class RedisService {
     public byte[] changeMessage(ByteBuf byteBuf) {
         // 将ByteBuf转换为字节数组
         byte[] bytes = ByteBufUtil.getBytes(byteBuf);
-        ReferenceCountUtil.safeRelease(byteBuf);
+        byteBuf.release();
         return bytes;
 
     }

@@ -1,7 +1,6 @@
 package com.forward.core.tcpReverseProxy;
 
 import cn.hutool.core.collection.CollectionUtil;
-import cn.hutool.core.util.HexUtil;
 import cn.hutool.core.util.ObjectUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.constant.Constants;
@@ -13,23 +12,18 @@ import com.forward.core.tcpReverseProxy.handler.HeadTraceIdHandler;
 import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
 import com.forward.core.tcpReverseProxy.interfaces.FourConsumer;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
+import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
-import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
-import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import io.netty.handler.ssl.SslHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
@@ -41,13 +35,10 @@ import java.io.File;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * TCP反向代理服务
@@ -106,7 +97,7 @@ public class ReverseProxyServer {
 
     public List<String> start(ReverseProxyServer server, Map<String, TcpProxyMapping> hosts) {
         log.info("start server channel :{}", JSON.toJSONString(hosts));
-        List<String> errorServerPorts=new ArrayList<>();
+        List<String> errorServerPorts = new ArrayList<>();
         for (Map.Entry<String, TcpProxyMapping> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
             if (server.getServerChannels().keySet().contains(host.getKey())) {
@@ -323,24 +314,28 @@ public class ReverseProxyServer {
 //                        }
                         putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.SERVER, remoteClientPort, ch);
                         log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
-                        if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
-                            if (StringUtil.isNotEmpty(localClientPort)) {
-                                Optional<ProxyHandler> optionalProxyHandler;
-                                if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
-                                    optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
-                                } else {
-                                    optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
-                                }
-                                if (optionalProxyHandler.isPresent()) {
-                                    ch.pipeline().addLast(optionalProxyHandler.get());
-                                    return;
+                        LockUtils.executeWithLock(getTargetServerAddress(),LockUtils.defaultExpireTime,(v)->{
+                            if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
+                                if (StringUtil.isNotEmpty(localClientPort)) {
+                                    Optional<ProxyHandler> optionalProxyHandler;
+                                    if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
+                                        optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> getTargetServerAddress().equals(handler.getTargetServerAddress())).findAny();
+                                    } else {
+                                        optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
+                                    }
+                                    if (optionalProxyHandler.isPresent()) {
+                                        ch.pipeline().addLast(optionalProxyHandler.get());
+                                        return;
+                                    }
                                 }
                             }
+                            ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, getNewTarget(), getReconnectTime(), putCustomizeTargetChannelHandler());
+                            proxyHandler.setProxyHandlers(targetProxyHandlers);
+                            targetProxyHandlers.add(proxyHandler);
+                            ch.pipeline().addLast(proxyHandler);
+                            ch.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG)).fireChannelReadComplete();
+                        },5,1500);
 
-                        }
-                        ProxyHandler proxyHandler = new ProxyHandler(localClientPort, targetHost, targetPort, connectionCounts, handlerWorkerGroup, executorGroup, targetProxyHandlers, getNewTarget(), getReconnectTime(), putCustomizeTargetChannelHandler());
-                        ch.pipeline().addLast(proxyHandler);
-                        ch.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG)).fireChannelReadComplete();
                     }
 
 

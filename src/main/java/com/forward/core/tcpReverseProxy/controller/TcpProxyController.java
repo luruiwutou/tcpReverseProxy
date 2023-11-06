@@ -326,4 +326,8 @@ public class TcpProxyController {
     public ResponseEntity runtimeEnv() {
         return ResponseEntity.ok(ChannelProxyConfigEnum.RUNTIME_ENV.getChannelEnv(proxyConfigMapper));
     }
+    @GetMapping("/info")
+    public ResponseEntity info() {
+        return ResponseEntity.ok(JSON.toJSONString(server));
+    }
 }

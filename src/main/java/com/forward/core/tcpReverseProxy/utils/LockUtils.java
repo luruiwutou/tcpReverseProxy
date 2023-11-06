@@ -28,7 +28,6 @@ public class LockUtils {
 
     public static <T> T executeWithLock(String lockKey, long expireTime, Supplier<T> method) throws Exception {
         addTraceId();
-        // 获取锁的过期时间
         String requestId = UUID.randomUUID().toString();
         // 加锁逻辑
         boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
@@ -57,7 +56,6 @@ public class LockUtils {
      */
     public static void executeWithLock(String lockKey, long expireTime, Consumer<Void> method) throws Exception {
         addTraceId();
-        // 获取锁的过期时间
         String requestId = UUID.randomUUID().toString();
         // 加锁逻辑
         boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
@@ -75,6 +73,67 @@ public class LockUtils {
             if (lockAcquired)
                 // 释放锁
                 releaseLock(lockKey, requestId);
+        }
+    }
+
+    public static <T> T executeWithLock(String lockKey, long expireTime, Supplier<T> method, int maxRetryAttempts, long retryInterval) throws Exception {
+        addTraceId();
+        // 获取锁的过期时间
+        String requestId = UUID.randomUUID().toString();
+        int retryCount = 0;
+
+        while (retryCount < maxRetryAttempts) {
+            // 尝试获取锁
+            boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
+
+            if (lockAcquired) {
+                try {
+                    log.info("Lock acquired :{}", lockAcquired);
+                    // 获取锁成功，执行业务逻辑
+                    return method.get();
+                } finally {
+                    // 释放锁
+                    releaseLock(lockKey, requestId);
+                }
+            } else {
+                // 获取锁失败，等待一段时间后重试
+                log.info("Failed to acquire lock. Retrying...");
+                Thread.sleep(retryInterval); // 休眠一段时间后重试
+                retryCount++;
+            }
+        }
+
+        // 超过重试次数仍然无法获取锁，抛出异常或者执行其他处理
+        log.info("Exceeded maximum retry attempts. Failed to acquire lock.");
+        throw new Exception("Failed to acquire lock after maximum retry attempts.");
+    }
+
+    public static void executeWithLock(String lockKey, long expireTime, Consumer<Void> method, int maxRetryAttempts, long retryInterval) throws Exception {
+        addTraceId();
+        // 获取锁的过期时间
+        String requestId = UUID.randomUUID().toString();
+        int retryCount = 0;
+
+        while (retryCount < maxRetryAttempts) {
+            // 尝试获取锁
+            boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
+            if (lockAcquired) {
+                try {
+                    log.info("Lock acquired :{}", lockAcquired);
+                    // 获取锁成功，执行业务逻辑
+                    method.accept(null);
+                } finally {
+                    if (lockAcquired)
+                        // 释放锁
+                        releaseLock(lockKey, requestId);
+                    break;
+                }
+            } else {
+                // 获取锁失败，等待一段时间后重试
+                log.info("Failed to acquire lock. Retrying after {}ms...",retryInterval);
+                Thread.sleep(retryInterval); // 休眠一段时间后重试
+                retryCount++;
+            }
         }
     }
 

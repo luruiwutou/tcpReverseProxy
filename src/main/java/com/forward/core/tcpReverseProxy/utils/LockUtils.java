@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 public class LockUtils {
     private final static RedisTemplate<String, String> redisTemplate;
 
-    public static long defaultExpireTime = 60;
+    public static long defaultExpireTime = 30;
 
     static {
         redisTemplate = SpringUtils.getBean("stringRedisTemplate");
@@ -119,7 +119,7 @@ public class LockUtils {
             boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
             if (lockAcquired) {
                 try {
-                    log.info("Lock acquired :{}", lockAcquired);
+                    log.info("Lock key:{}, Lock acquired :{}",lockKey, lockAcquired);
                     // 获取锁成功，执行业务逻辑
                     method.accept(null);
                 } finally {

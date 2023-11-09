@@ -1,6 +1,5 @@
 package com.forward.core.tcpReverseProxy.handler;
 
-import cn.hutool.core.collection.CollectionUtil;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
@@ -18,21 +17,17 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
-import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.util.CollectionUtils;
 
-import java.io.IOException;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -57,7 +52,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private Consumer<SocketChannel> customizeHandlerMapCon;
     private volatile boolean isShutDown = false;
     private volatile boolean shouldReconnect = true;
-    private volatile AtomicInteger isFirstConnecting = new AtomicInteger(0);
+    private volatile boolean isConnecting = false;
 
     public ProxyHandler(String clientPort, String targetHost, int targetPort, Map<String, Integer> connectionCounts, EventLoopGroup workerGroup, EventExecutorGroup executorGroup, Function<String[], String[]> getNewTarget, Supplier<Integer> getReconnectTime, Consumer<SocketChannel> putCustomizeTargetChannelHandler) {
         this.clientPort = clientPort;
@@ -89,18 +84,17 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             String traceId = SnowFlake.getTraceId();
             MDC.put(Constants.TRACE_ID, traceId);
         }
-        shouldReconnect = true;
+
         clientChannels.add(ctx.channel());
         log.info("targetChannelActive: {}", targetChannel);
         if (targetChannel != null && targetChannel.isActive()) {
             readMsgCache(getHostStr(ctx.channel().localAddress()), targetChannel);
             log.info("Received from remote client {} send to {}", getHostStr(ctx.channel().remoteAddress()), getTargetServerAddress());
         } else {
-            // Target channel is not active, handle accordingly (e.g., buffer the message)3
-            log.info("active count connectToTarget,{}", isFirstConnecting);
-            if (isFirstConnecting.get() == 0) {
-                log.info("active connecting ");
-                connectToTarget();
+            log.info("{} active connecting ：{}", getTargetServerAddress(), isConnecting);
+            if (!isConnecting) {
+                shouldReconnect = true;
+                connectToTarget(null);
             }
         }
         MDC.remove(Constants.TRACE_ID);
@@ -120,25 +114,26 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             String traceId = SnowFlake.getTraceId();
             MDC.put(Constants.TRACE_ID, traceId);
         }
-        shouldReconnect = true;
         String hostStr = getHostStr(ctx.channel().localAddress());
-//        log.info("targetChannel:{}",targetChannel);
         if (targetChannel != null && targetChannel.isActive()) {
             log.info("Received from {} send to {}", getHostStr(ctx.channel().remoteAddress()), getTargetServerAddress());
             getReadConsumer(targetChannel).accept(msg);
-//            executorGroup.submit(() -> targetChannel.writeAndFlush(msg));
             readMsgCache(hostStr, targetChannel);
         } else {
-            log.info("target channel is not active {}", targetChannel);
-            log.info("Connecting to target ,connecting:{}", isFirstConnecting);
-            while (isFirstConnecting.get()==0){
-                Thread.sleep(1000);
-            }
-            if (isFirstConnecting.get() > 0 && targetChannel == null) {
-                Long listSize = getListSize(hostStr);
-                if (listSize != null && listSize < 1000) writeMsgCache(hostStr, msg);
-                connectToTarget();
-            }else if (null != targetChannel){
+            log.info("target channel is not active {},connecting :{}", getTargetServerAddress(), isConnecting);
+            if (null == targetChannel || !targetChannel.isActive()) {
+//                Long listSize = null;
+//                try {
+//                    listSize = getListSize(hostStr);
+//                    if (listSize != null && listSize < 1000) writeMsgCache(hostStr, msg);
+//                } catch (Exception e) {
+//                    log.info("drop msg:{}", ByteBufUtil.hexDump((ByteBuf) msg));
+//                }
+                if (!isConnecting) {
+                    shouldReconnect = true;
+                    connectToTarget(msg);
+                }
+            } else if (null != targetChannel && targetChannel.isActive()) {
                 getReadConsumer(targetChannel).accept(msg);
                 readMsgCache(hostStr, targetChannel);
             }
@@ -187,15 +182,13 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-        log.info("main channelInactive ");
+        log.info("{} channelInactive ", ctx.channel());
         whenExceptionOrClose(ctx);
     }
 
     @Override
     public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
         if (ctx.channel().isWritable()) {
-            // 当缓冲区可写时，再次尝试写入数据
-//            writeMessage(channel);
             readMsgCache(getTargetServerAddress(), ctx.channel());
         }
         super.channelWritabilityChanged(ctx);
@@ -230,30 +223,40 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         MDC.get(Constants.TRACE_ID);
     }
 
-    public void connectToTarget() {
-        try {
-            log.info("Lock connecting to target,lock key：{}", this.hashCode() + clientChannels.name());
-            String traceId = MDC.get(Constants.TRACE_ID);
-            LockUtils.executeWithLock(this.hashCode() + clientChannels.name(), (v) -> {
-                if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
-                    MDC.put(Constants.TRACE_ID, traceId);
+    private final Object targetLock = new Object();
+
+    public void connectToTarget(Object msg) {
+        if (targetChannel == null || !targetChannel.isActive()) {
+            synchronized (targetLock) {
+                if (targetChannel == null || !targetChannel.isActive()) {
+                    isConnecting = true;
+                    try {
+                        log.info("Lock connecting to target,lock key：{}", this.hashCode() + clientChannels.name());
+                        String traceId = MDC.get(Constants.TRACE_ID);
+                        if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
+                            MDC.put(Constants.TRACE_ID, traceId);
+                        }
+                        if (targetChannel != null && !targetChannel.isActive()) {
+                            targetChannel = null;
+                        }
+                        if (shouldReconnect) initClientBootstrap(msg);
+
+                    } catch (Exception e) {
+                        log.info("加锁执行失败，原因：{}", e);
+                    }
+
                 }
-                if (targetChannel != null && !targetChannel.isActive()) {
-                    targetChannel = null;
-                }
-                if (shouldReconnect) initClientBootstrap();
-            });
-        } catch (Exception e) {
-            log.info("加锁执行失败，原因：{}", e);
+            }
         }
-
-
     }
 
     final static Random random = new Random();
 
-    public void initClientBootstrap() {
-        log.info("Connecting :{}", isFirstConnecting);
+    public void initClientBootstrap(Object msg) {
+        if (targetChannel != null) {
+            log.info("targetChannel :{} is exist", targetChannel);
+            return;
+        }
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(workerGroup).channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true) // 设置 TCP_NODELAY 选项
@@ -270,7 +273,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                             @Override
                             public void channelActive(ChannelHandlerContext ctx) throws Exception {
                                 //当与转发目标服务器进行连接的时候，把当前附表的channel赋值给targetChannel
-                                log.info("old create target:{}", ctx.channel());
                                 if (null == targetChannel) {
                                     targetChannel = ctx.channel();
                                 }
@@ -356,14 +358,17 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                     connectionCounts.put(targetServerId, connectionCount - 1);
                                 }
                                 log.info("本地地址：{} ，目标：{}不可用，{} 重连！", getHostStr(ctx.channel().localAddress()), targetServerId, shouldReconnect ? "尝试" : "无需");
-                                targetChannel = null;
+//                                targetChannel = null;
                                 if (!clientChannels.isEmpty()) {
                                     if (shouldReconnect) reconnectToTarget();
                                 }
                                 MDC.remove(Constants.TRACE_ID);
+//                                int connectCount = isConnecting.decrementAndGet();
+//                                log.info("this proxyHandler:{} connects is :{}", JSON.toJSONString(this), connectCount);
                                 ctx.close();
 
                             }
+
                             @Override
                             public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
                                 if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
@@ -394,9 +399,16 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 MDC.put(Constants.TRACE_ID, traceId);
             }
             log.info("创建future状态：{}", future1.isSuccess());
+            isConnecting = false;
             if (future1.isSuccess()) {
+                if (targetChannel != null && targetChannel.isActive()) {
+                    log.info("已有targetChannel");
+                    future1.channel().close();
+                    return;
+                }
                 targetChannel = future1.channel();
-                isFirstConnecting.incrementAndGet();
+                if (null != msg)
+                    getReadConsumer(targetChannel).accept(msg);
                 reconnectTimeCount.set(1);
                 log.info("local client:{} Connected to target: {} success", getHostStr(future1.channel().localAddress()), getTargetServerAddress());
             } else {
@@ -417,9 +429,9 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private void reconnectToTarget() {
         resetTargetAddress();
         workerGroup.schedule(() -> {
-            log.info("----重连");
-            connectToTarget();
-        }, 2, TimeUnit.SECONDS);
+            log.info("----重连--{}", getTargetServerAddress());
+            connectToTarget(null);
+        }, 5, TimeUnit.SECONDS);
     }
 
     private void resetTargetAddress() {
@@ -445,12 +457,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                 shouldReconnect = false;
                 targetChannel.close();
             }
-//            if (!workerGroup.isShuttingDown()) {
-//                workerGroup.shutdownGracefully();
-//            }
-//            if (!executorGroup.isShuttingDown()) {
-//                executorGroup.shutdownGracefully();
-//            }
             isShutDown = true;
         });
     }

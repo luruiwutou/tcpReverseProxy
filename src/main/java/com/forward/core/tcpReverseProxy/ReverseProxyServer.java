@@ -100,7 +100,7 @@ public class ReverseProxyServer {
         List<String> errorServerPorts = new ArrayList<>();
         for (Map.Entry<String, TcpProxyMapping> host : hosts.entrySet()) {
             ConcurrentLinkedQueue<ProxyHandler> targetProxyHandler = new ConcurrentLinkedQueue<>();
-            if (server.getServerChannels().keySet().contains(host.getKey())) {
+            if (server.getServerChannels().keySet().contains(host.getKey()) && server.getServerChannels().get(host.getKey()).isActive()) {
                 log.info("ports:{} has been Started", host.getKey());
                 continue;
             }
@@ -152,6 +152,10 @@ public class ReverseProxyServer {
         int portToStop = Integer.parseInt(port);
         if (serverChannel != null) {
             try {
+                if (!serverChannel.isActive()) {
+                    serverChannels.remove(portToStop); // 从Map中移除该端口的Channel对象
+                    return;
+                }
                 serverChannel.close().addListener((ChannelFutureListener) future -> {
                     if (future.isSuccess()) {
                         // 关闭成功f
@@ -314,7 +318,7 @@ public class ReverseProxyServer {
 //                        }
                         putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.SERVER, remoteClientPort, ch);
                         log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},\n此次连接转发目标地址：{}:{}", ch.localAddress().toString().replace("/", ""), JSON.toJSONString(connectionCounts), ch.remoteAddress().toString().replace("/", ""), targetHost, targetPort);
-                        LockUtils.executeWithLock(getTargetServerAddress(),LockUtils.defaultExpireTime,(v)->{
+                        LockUtils.executeWithLock(getTargetServerAddress(), LockUtils.defaultExpireTime, (v) -> {
                             if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
                                 if (StringUtil.isNotEmpty(localClientPort)) {
                                     Optional<ProxyHandler> optionalProxyHandler;
@@ -334,7 +338,7 @@ public class ReverseProxyServer {
                             targetProxyHandlers.add(proxyHandler);
                             ch.pipeline().addLast(proxyHandler);
                             ch.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG)).fireChannelReadComplete();
-                        },5,1500);
+                        }, 5, 1500);
 
                     }
 

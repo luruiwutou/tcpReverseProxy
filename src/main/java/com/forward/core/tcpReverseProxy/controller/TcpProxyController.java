@@ -2,7 +2,6 @@ package com.forward.core.tcpReverseProxy.controller;
 
 import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.ReverseProxyServer;
@@ -25,7 +24,10 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -43,18 +45,15 @@ public class TcpProxyController {
     RedisTemplate<String, Object> redisTemplateObj;
     @Autowired
     RedisService redisService;
-
-    @GetMapping("/query")
-    public ResponseEntity query() {
-        List<ChannelProxyConfig> channelProxyConfigs = proxyConfigMapper.selectList(new QueryWrapper<ChannelProxyConfig>().likeLeft("conf_key", "Test"));
-        return ResponseEntity.ok(channelProxyConfigs);
-    }
+//    @Value("${test.ip}")
+//    String ip;
 
 
     private ReverseProxyServer server;
     private String severAddress = "";
 
     public String getSeverAddress() {
+//        return StringUtil.isNotBlank(severAddress) ? severAddress : ip;
         return StringUtil.isNotBlank(severAddress) ? severAddress : HostUtils.getLocalServerAddress();
     }
 
@@ -63,6 +62,7 @@ public class TcpProxyController {
         // 在应用加载完成后执行的初始化方法逻辑
         try {
             log.info("Start Tcp Proxy Server");
+//            severAddress = ip;
             severAddress = HostUtils.getLocalServerAddress();
             server = new ReverseProxyServer();
             start(ChannelProxyConfigEnum.DEFAULT_ENV.getKeyVal(Constants.ASTERISK, proxyConfigMapper));
@@ -322,10 +322,20 @@ public class TcpProxyController {
         server.stopTargetServer(hostPort, targetHost);
     }
 
+    @GetMapping("/stopServerPost")
+    public void stopServerPost(@RequestParam String... serverPorts) throws Exception {
+        if (serverPorts == null || serverPorts.length == 0)
+            return;
+        for (int i = 0; i < serverPorts.length; i++) {
+            server.closeChannelConnects(serverPorts[i]);
+        }
+    }
+
     @GetMapping("/runtime/env")
     public ResponseEntity runtimeEnv() {
         return ResponseEntity.ok(ChannelProxyConfigEnum.RUNTIME_ENV.getChannelEnv(proxyConfigMapper));
     }
+
     @GetMapping("/info")
     public ResponseEntity info() {
         return ResponseEntity.ok(JSON.toJSONString(server));

@@ -20,7 +20,6 @@ spring:
     connectionProperties: druid.stat.mergeSql=true;druid.stat.slowSqlMillis=5000  # 连接属性
 
 server:
-  port: 8005
   servlet:
     context-path: /forward
 

@@ -1,14 +1,10 @@
 server:
-  port: 8006
+  port: 8005
 spring:
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
   datasource:
-    #    url: jdbc:mysql://25.6.72.40:3306/atmp?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
-#    url: jdbc:mysql://172.27.208.1:16033/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
-#    username: root
-#    password: 654321
     url: jdbc:mysql://localhost:3306/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
     username: root
     password: 654321
@@ -27,6 +23,7 @@ spring:
         max-idle: 20
         max-wait: -1
         min-idle: 5
+
 logging:
   level:
     com.forward.core.tcpReverseProxy.controller: debug
@@ -40,4 +37,4 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 test:
-  ip: 192.168.21.14
+  ip: 192.168.21.13

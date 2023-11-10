@@ -58,32 +58,32 @@ public class ForwardingController {
     @Autowired
     private RestTemplate restTemplate;
 
-    @RequestMapping(value = "/get", method = RequestMethod.GET)
-    public ResponseEntity<String> forwardRequest(@RequestParam String url) {
-
-        log.info("GET url:{} ", url);
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Accept", "application/json");
-        HttpEntity<String> entity = new HttpEntity<>("parameters", headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-
-        log.info("response ", JSON.toJSONString(response));
-        return response;
-    }
-
-    @RequestMapping(value = "/post", method = RequestMethod.POST)
-    public ResponseEntity<String> forwardPostRequest(@RequestParam String url, @RequestBody String requestBody) {
-        log.info("POST url:{},requestBody:{} ", url, requestBody);
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Content-Type", "application/json");
-        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-
-        log.info("response ", JSON.toJSONString(response));
-        return response;
-    }
+//    @RequestMapping(value = "/get", method = RequestMethod.GET)
+//    public ResponseEntity<String> forwardRequest(@RequestParam String url) {
+//
+//        log.info("GET url:{} ", url);
+//        HttpHeaders headers = new HttpHeaders();
+//        headers.add("Accept", "application/json");
+//        HttpEntity<String> entity = new HttpEntity<>("parameters", headers);
+//
+//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+//
+//        log.info("response ", JSON.toJSONString(response));
+//        return response;
+//    }
+//
+//    @RequestMapping(value = "/post", method = RequestMethod.POST)
+//    public ResponseEntity<String> forwardPostRequest(@RequestParam String url, @RequestBody String requestBody) {
+//        log.info("POST url:{},requestBody:{} ", url, requestBody);
+//        HttpHeaders headers = new HttpHeaders();
+//        headers.add("Content-Type", "application/json");
+//        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+//
+//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
+//
+//        log.info("response ", JSON.toJSONString(response));
+//        return response;
+//    }
 
 //    @Resource
 //    protected HsmSendClient hsmClient;

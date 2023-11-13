@@ -239,9 +239,41 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                         if (targetChannel != null && !targetChannel.isActive()) {
                             targetChannel = null;
                         }
-                        if (shouldReconnect) initClientBootstrap(msg);
+                        if (shouldReconnect) {
+                            ChannelFuture future = initClientBootstrap(msg);
+                            if (future == null) {
+                                return;
+                            }
+                            try {
+                                boolean completed = future.await(5, TimeUnit.SECONDS);
+                                if (completed && future.isSuccess()) {
+                                    // 操作已完成
+                                    if (targetChannel != null && targetChannel.isActive()) {
+                                        log.info("已有targetChannel");
+                                        if (null != msg) getReadConsumer(targetChannel).accept(msg);
+                                        future.channel().close();
+                                        return;
+                                    }
+                                    targetChannel = future.channel();
+                                    if (null != msg) getReadConsumer(targetChannel).accept(msg);
+                                    reconnectTimeCount.set(1);
+                                    log.info("local client:{} Connected to target: {} success", getHostStr(future.channel().localAddress()), getTargetServerAddress());
+                                } else {
+                                    if (!completed) {
+                                        future.cancel(true);
+                                    }
+                                    log.info("remote client:{} Failed to connect to target: {} ,try times: {}\n error msg:{}", clientChannels.isEmpty() ? null : getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount, future.cause().getMessage());
+                                    log.error("local client:" + clientPort + " started failed cause:", future.cause());
+                                    reconnectToTarget(msg);
+                                }
+                            } catch (InterruptedException e) {
+                                // 处理中断异常
+                                throw e;
+                            }
+
+                        }
                     } catch (Exception e) {
-                        log.info("加锁执行失败，原因：{}", e);
+                        log.info("连接执行失败，原因：{}", e);
                     } finally {
                         isConnecting = false;
                         log.info("修改后isConnecting：{}", isConnecting);
@@ -253,10 +285,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     final static Random random = new Random();
 
-    public void initClientBootstrap(Object msg) {
+    public ChannelFuture initClientBootstrap(Object msg) {
         if (targetChannel != null) {
             log.info("targetChannel :{} is exist", targetChannel);
-            return;
+            return null;
         }
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(workerGroup).channel(NioSocketChannel.class).option(ChannelOption.TCP_NODELAY, true) // 设置 TCP_NODELAY 选项
@@ -399,29 +431,10 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
             }
             log.info("创建future状态：{}", future1.isSuccess());
             log.info("此时isConnecting值：{}", isConnecting);
-            if (future1.isSuccess()) {
-                if (targetChannel != null && targetChannel.isActive()) {
-                    log.info("已有targetChannel");
-                    if (null != msg) getReadConsumer(targetChannel).accept(msg);
-                    future1.channel().close();
-                    return;
-                }
-                targetChannel = future1.channel();
-                if (null != msg) getReadConsumer(targetChannel).accept(msg);
-                reconnectTimeCount.set(1);
-                log.info("local client:{} Connected to target: {} success", getHostStr(future1.channel().localAddress()), getTargetServerAddress());
-            } else {
-                log.info("remote client:{} Failed to connect to target: {} ,try times: {}\n error msg:{}", clientChannels.isEmpty() ? null : getHostStr(clientChannels.stream().findAny().get().remoteAddress()), getTargetServerAddress(), reconnectTimeCount, future1.cause().getMessage());
-                log.error("local client:{} started failed cause:", clientPort, future1.cause());
-                reconnectToTarget(msg);
-            }
+
             MDC.remove(Constants.TRACE_ID);
         });
-        try {
-            future.sync();
-        } catch (InterruptedException e) {
-            log.info("target client created interrupted", e);
-        }
+        return future;
     }
 
     public String getTargetServerAddress() {

@@ -6,6 +6,7 @@ import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
+import com.forward.core.tcpReverseProxy.utils.balance.QueueBalance;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;
@@ -45,7 +46,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private EventLoopGroup workerGroup;
     private EventExecutorGroup executorGroup;
     //每一个目标服务器开了多少个channel的计数
-    private Map<String, Integer> connectionCounts;
+    private volatile Map<String, Integer> connectionCounts;
     private Function<String[], String[]> getNewTarget;
     private Supplier<Integer> getReconnectTime;
     private ConcurrentLinkedQueue<ProxyHandler> proxyHandlers;
@@ -284,7 +285,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     }
 
     final static Random random = new Random();
-
+    QueueBalance<Channel> queueBalance = new QueueBalance<>();
     public ChannelFuture initClientBootstrap(Object msg) {
         if (targetChannel != null) {
             log.info("targetChannel :{} is exist", targetChannel);
@@ -356,8 +357,9 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                         return;
                                     }
                                 }
-                                int randomIndex = random.nextInt(collect.size());
-                                Channel randomChannel = collect.get(randomIndex);
+//                                int randomIndex = random.nextInt(collect.size());
+                                Channel randomChannel =queueBalance.chooseOne(collect);
+                                log.info("balance to each client :{}", randomChannel);
                                 String clientAddress = getHostStr(randomChannel.remoteAddress());
                                 log.info("client channel {} is writeable, {}", clientAddress, randomChannel);
                                 String traceId = MDC.get(Constants.TRACE_ID);

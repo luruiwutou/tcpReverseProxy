@@ -5,13 +5,21 @@ spring:
     pathmatch:
       matching-strategy: ant_path_matcher
   datasource:
-    #    url: jdbc:mysql://25.6.72.40:3306/atmp?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
-#    url: jdbc:mysql://172.27.208.1:16033/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
+    url: jdbc:h2:mem:gateway;DB_CLOSE_DELAY=-1;MODE=MySQL # mem指定数据库使用内存模式 MODE指定使用MySQL模式
+    driver-class-name: org.h2.Driver
+    username: root
+    password: 123456
+  sql:
+    init:
+      schema-locations: classpath:h2/schema.sql
+      data-locations: classpath:h2/local-data.sql
+  h2:
+    console:
+      enabled: true # 访问h2数据库控制台
+
+#    url: jdbc:mysql://localhost:3306/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
 #    username: root
 #    password: 654321
-    url: jdbc:mysql://localhost:3306/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
-    username: root
-    password: 654321
 
 
   redis:
@@ -38,6 +46,3 @@ mybatis-plus:
     map-underscore-to-camel-case: true
     auto-mapping-behavior: full
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-
-test:
-  ip: 192.168.21.14

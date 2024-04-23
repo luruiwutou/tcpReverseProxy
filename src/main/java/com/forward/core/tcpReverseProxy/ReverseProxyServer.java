@@ -6,15 +6,14 @@ import com.alibaba.fastjson.JSON;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.entity.TcpProxyMapping;
-import com.forward.core.tcpReverseProxy.handler.CustomizeLengthFieldBasedFrameDecoder;
-import com.forward.core.tcpReverseProxy.handler.CustomizeSslHandler;
-import com.forward.core.tcpReverseProxy.handler.HeadTraceIdHandler;
-import com.forward.core.tcpReverseProxy.handler.ProxyHandler;
+import com.forward.core.tcpReverseProxy.handler.*;
 import com.forward.core.tcpReverseProxy.interfaces.FourConsumer;
 import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
+import com.forward.core.tcpReverseProxy.utils.balance.Balance;
+import com.forward.core.tcpReverseProxy.utils.balance.QueueBalance;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -24,6 +23,7 @@ import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
@@ -204,6 +204,10 @@ public class ReverseProxyServer {
         return SslContextBuilder.forClient().trustManager(new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_PATH))).build();
     }
 
+    /**
+     * 存放自定义channelHandler
+     * @return
+     */
     private FourConsumer<String, String, String, SocketChannel> putCustomizeChannelHandler() {
         return (env, cOrS, port, channel) -> {
             //与渠道无关，所以排除渠道的影响，进行合并处理
@@ -230,6 +234,16 @@ public class ReverseProxyServer {
                             String[] fields = fieldLengthObj.toString().split(",");
                             channel.pipeline().addLast("customizeLengthFieldBasedFrameDecoder", new CustomizeLengthFieldBasedFrameDecoder(Integer.valueOf(fields[0]), Integer.valueOf(fields[1]), Integer.valueOf(fields[2]), Integer.valueOf(fields[3]), Integer.valueOf(fields[4])));
                         }
+                        String idleConfig = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.PROXY_SERVER_IDLE_CONFIG);
+                        if (ObjectUtil.isNotEmpty(idleConfig)) {
+                            try {
+                                String[] split = idleConfig.split(",");
+                                channel.pipeline().addLast("idleStateHandler", new IdleStateHandler(Integer.valueOf(split[0]), Integer.valueOf(split[1]), Integer.valueOf(split[2])));
+                                channel.pipeline().addLast("nettyClientIdleEventHandler", new NettyClientIdleEventHandler());
+                            } catch (Exception e) {
+                                log.info("server add idle handler failed", e);
+                            }
+                        }
                     }
                 }
             } else if (Constants.CLIENT.equals(cOrS)) {
@@ -251,6 +265,16 @@ public class ReverseProxyServer {
                                 channel.pipeline().addFirst("ssl/tls", new CustomizeSslHandler(createClientSslContext(env, channelName).newEngine(channel.alloc())));
                             } catch (Exception e) {
                                 log.info("client add ssl handler failed", e);
+                            }
+                        }
+                        String idleConfig = redisService.getStrValueByEnvAndChannelAndKey(env, channelName, Constants.PROXY_CLIENT_IDLE_CONFIG);
+                        if (ObjectUtil.isNotEmpty(idleConfig)) {
+                            try {
+                                String[] split = idleConfig.split(",");
+                                channel.pipeline().addLast("idleStateHandler", new IdleStateHandler(Integer.valueOf(split[0]), Integer.valueOf(split[1]), Integer.valueOf(split[2])));
+                                channel.pipeline().addLast("nettyClientIdleEventHandler", new NettyClientIdleEventHandler());
+                            } catch (Exception e) {
+                                log.info("client add idle handler failed", e);
                             }
                         }
                     }
@@ -296,15 +320,20 @@ public class ReverseProxyServer {
                     private int targetPort;
                     private String remoteClientPort = "";
                     private String localClientPort = "";
-                    private Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
-                    private List<String[]> targetConnections = new ArrayList<>();
+                    private volatile Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
+                    private volatile List<String[]> targetConnections = new ArrayList<>();
+                    private volatile Balance<String[]> targetConnectionQueue = new QueueBalance<>();
 
+                    /**
+                     * din
+                     * @return
+                     */
                     private Consumer<SocketChannel> putCustomizeTargetChannelHandler() {
                         return (socketChannel) -> putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.CLIENT, remoteClientPort, socketChannel);
                     }
 
                     @Override
-                    protected void initChannel(SocketChannel ch) throws Exception {
+                    protected synchronized void initChannel(SocketChannel ch) throws Exception {
                         String traceId = SnowFlake.getTraceId();
                         MDC.put(Constants.TRACE_ID, traceId);
                         ch.attr(Constants.TRACE_ID_KEY).set(traceId);
@@ -345,6 +374,7 @@ public class ReverseProxyServer {
 
                     private Function<String[], String[]> getNewTarget() {
                         return (target) -> {
+                            log.info("getNewTarget");
                             setTarget();
                             if (CollectionUtils.isEmpty(targetConnections)) {
                                 return target;
@@ -352,17 +382,17 @@ public class ReverseProxyServer {
                             if (targetConnections.size() == 1) {
                                 return targetConnections.get(0);
                             }
-                            List<String[]> otherTarget = targetConnections.stream().filter(a -> !a[1].equals(target[1])).collect(Collectors.toList());
-                            Random random = new Random();
-                            int index = random.nextInt(otherTarget.size());
-                            String[] result = otherTarget.get(index);
-
+//                            List<String[]> otherTarget = targetConnections.stream().filter(a -> !a[1].equals(target[1])).collect(Collectors.toList());
+//                            Random random = new Random();
+//                            int index = random.nextInt(otherTarget.size());
+//                            String[] result = otherTarget.get(index);
+                            String[] result = targetConnectionQueue.chooseOne(targetConnections);
                             return result;
                         };
                     }
 
                     private Supplier<Integer> getReconnectTime() {
-                        setTarget();
+                        targetConnections = getConnections.apply(remoteClientPort);
                         return () -> 5 * targetConnections.size();
                     }
 
@@ -377,19 +407,21 @@ public class ReverseProxyServer {
                         String selectedTarget = null;
                         String selectedClientPort = null;
                         int minConnectionCount = Integer.MAX_VALUE;
-                        for (String[] targetStr : targetConnections) {
-                            String[] target = targetStr[1].split(":");
-                            String targetHost = target[0];
-                            String targetPort = target[1];
-                            String targetServerId = targetHost + ":" + targetPort;
-                            int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
-                            if (connectionCount < minConnectionCount) {
-                                selectedTarget = targetServerId;
-                                selectedClientPort = targetStr[0];
-                                minConnectionCount = connectionCount;
-                            }
-                        }
-
+//                        for (String[] targetStr : targetConnections) {
+//                            String[] target = targetStr[1].split(":");
+//                            String targetHost = target[0];
+//                            String targetPort = target[1];
+//                            String targetServerId = targetHost + ":" + targetPort;
+//                            int connectionCount = connectionCounts.getOrDefault(targetServerId, 0);
+//                            if (connectionCount < minConnectionCount) {
+//                                selectedTarget = targetServerId;
+//                                selectedClientPort = targetStr[0];
+//                                minConnectionCount = connectionCount;
+//                            }
+//                        }
+                        String[] strings = targetConnectionQueue.chooseOne(targetConnections);
+                        selectedClientPort=strings[0];
+                        selectedTarget=strings[1];
                         if (selectedTarget != null) {
                             // 执行相关操作，如使用 selectedTarget 进行转发或其他处理
                             log.info("Selected target: {}", selectedTarget);

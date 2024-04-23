@@ -15,13 +15,19 @@ import java.nio.charset.Charset;
 
 @Slf4j
 public class CustomizeLengthFieldBasedFrameDecoder extends LengthFieldBasedFrameDecoder {
+    private final int lengthFieldLength;
+    private final int maxFrameLength;
 
     public CustomizeLengthFieldBasedFrameDecoder(int maxFrameLength, int lengthFieldOffset, int lengthFieldLength) {
         super(maxFrameLength, lengthFieldOffset, lengthFieldLength);
+        this.lengthFieldLength = lengthFieldLength;
+        this.maxFrameLength = maxFrameLength;
     }
 
     public CustomizeLengthFieldBasedFrameDecoder(int maxFrameLength, int lengthFieldOffset, int lengthFieldLength, int lengthAdjustment, int initialBytesToStrip) {
         super(maxFrameLength, lengthFieldOffset, lengthFieldLength, lengthAdjustment, initialBytesToStrip);
+        this.lengthFieldLength = lengthFieldLength;
+        this.maxFrameLength = maxFrameLength;
     }
 
     @Override
@@ -63,20 +69,39 @@ public class CustomizeLengthFieldBasedFrameDecoder extends LengthFieldBasedFrame
                 log.info("IBM length: {}", result);
             } catch (NumberFormatException ex) {
                 log.info("getFrameLength error:", e);
-                log.info("getFrameLength error:", ex);
+                log.info("try IBM charset error:", ex);
             }
         }
         return result;
     }
 
     protected Object decode(ChannelHandlerContext ctx, ByteBuf in) throws Exception {
-        if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))){
+        if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
             String traceId = SnowFlake.getTraceId();
             MDC.put(Constants.TRACE_ID, traceId);
         }
         Object decode = super.decode(ctx, in);
         return decode;
     }
+
+//    @Override
+//    public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+//        super.channelRead(ctx, msg);
+//        if (msg instanceof ByteBuf) {
+//            log.info("hex msg:{}", ByteBufUtil.hexDump((ByteBuf) msg));
+//            ByteBuf byteBuf = (ByteBuf) msg;
+//
+//            // 检查消息长度，根据实际需求进行判断和处理
+//            int length = byteBuf.readableBytes();
+//            if (length < lengthFieldLength || length > maxFrameLength) {
+//                // 不合理的消息长度，可以进行处理或直接丢弃
+//                log.info("length is {},Invalid frame length,Dropping it then close channel", length);
+//                byteBuf.release();  // 释放 ByteBuf
+//                ctx.close();
+//                return;
+//            }
+//        }
+//    }
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {

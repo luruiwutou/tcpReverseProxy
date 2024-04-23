@@ -155,6 +155,11 @@
             <artifactId>bcpkix-jdk15on</artifactId>
             <version>1.68</version> <!-- 根据你需要的版本进行调整 -->
         </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -171,6 +176,7 @@
                     <include>**/*.yml</include>
                     <include>**/*.properties</include>
                     <include>**/*.xml</include>
+                    <include>h2/*.sql</include>
                 </includes>
                 <filtering>false</filtering>
             </resource>

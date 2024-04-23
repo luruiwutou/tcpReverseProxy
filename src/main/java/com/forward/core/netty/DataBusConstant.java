@@ -3,7 +3,7 @@ package com.forward.core.netty;
 public class DataBusConstant {
     public static final String DELIMITER = "%#_#%";
 
-    public static final String HEART_BEAT = "ping-pong-ping-pong";
+    public static final String HEART_BEAT = "0000";
 
     /**
      * 最大连接数

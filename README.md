@@ -12,7 +12,7 @@
 - 远程客户端无感目标服务器的重启、切换
 ## 应用涉及组件说明
     
-- 数据库（MySQL）
+- 数据库（MySQL/H2）
   - 动态存储启动服务地址及转发目的服务地址
 - Netty
   - 基于Netty创建TCP服务端和客户端
@@ -23,7 +23,7 @@
 
 通过数据库配置达到动态生成TCP代理
 
-涉及表：`proxy_config`、`tcp_proxy_mapping`,建表语句:`src\main\resources\ddl\gateway.sql`
+涉及表：`proxy_config`、`tcp_proxy_mapping`,建表语句:`src\main\resources\ddl\schema.sql`
 
 - 生效规则：启动该服务的IP在`tcp_proxy_mapping`有配置，且指定环境与`proxy_config`配置的环境一致
 

@@ -46,8 +46,6 @@ public class TcpProxyController {
     RedisTemplate<String, Object> redisTemplateObj;
     @Autowired
     RedisService redisService;
-//    @Value("${test.ip}")
-//    String ip;
 
 
     private ReverseProxyServer server;
@@ -88,7 +86,7 @@ public class TcpProxyController {
         if (null == server) {
             server = new ReverseProxyServer();
         }
-        putConfigToRedis(channel);
+//        putConfigToRedis(channel);
         Map<String, Map<String, TcpProxyMapping>> hosts = getHostsByEmv(channel, env);
         if (CollectionUtil.isEmpty(hosts)) {
             log.info("env has no configuration ,do nothing");
@@ -103,20 +101,20 @@ public class TcpProxyController {
         }
     }
 
-    private void putConfigToRedis(String channel) {
-        if (!Constants.ASTERISK.equals(channel)) {
-            proxyConfigMapper.findByConfKey(channel, Constants.DEFAULT_FIELD_LENGTH_KEY).ifPresent(config -> {
-                SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channel + Constants.DEFAULT_FIELD_LENGTH_KEY, config.getConfVal());
-            });
-        } else {
-            List<ChannelProxyConfig> channelProxyConfigs = proxyConfigMapper.distinctChannelConfig(Constants.DEFAULT_FIELD_LENGTH_KEY);
-            if (CollectionUtil.isNotEmpty(channelProxyConfigs)) {
-                for (ChannelProxyConfig channelProxyConfig : channelProxyConfigs) {
-                    SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channelProxyConfig.getChannel().toUpperCase() + Constants.DEFAULT_FIELD_LENGTH_KEY, channelProxyConfig.getConfVal());
-                }
-            }
-        }
-    }
+//    private void putConfigToRedis(String channel) {
+//        if (!Constants.ASTERISK.equals(channel)) {
+//            proxyConfigMapper.findByConfKey(channel, Constants.DEFAULT_FIELD_LENGTH_KEY).ifPresent(config -> {
+//                SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channel + Constants.DEFAULT_FIELD_LENGTH_KEY, config.getConfVal());
+//            });
+//        } else {
+//            List<ChannelProxyConfig> channelProxyConfigs = proxyConfigMapper.distinctChannelConfig(Constants.DEFAULT_FIELD_LENGTH_KEY);
+//            if (CollectionUtil.isNotEmpty(channelProxyConfigs)) {
+//                for (ChannelProxyConfig channelProxyConfig : channelProxyConfigs) {
+//                    SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton().setStrValue(channelProxyConfig.getChannel().toUpperCase() + Constants.DEFAULT_FIELD_LENGTH_KEY, channelProxyConfig.getConfVal());
+//                }
+//            }
+//        }
+//    }
 
     @GetMapping("/changeEnv/{env}")
     public void changeEnv(@PathVariable String env) throws Exception {
@@ -132,7 +130,7 @@ public class TcpProxyController {
         if (StringUtil.isNotEmpty(channel)) {
             channel = channel.toUpperCase();
         }
-        putConfigToRedis(channel);
+//        putConfigToRedis(channel);
         log.info("Changing environment");
         try {
             Map<String, Map<String, TcpProxyMapping>> emvHosts = getHostsByEmv(channel, env);
@@ -250,7 +248,7 @@ public class TcpProxyController {
             start(env);
         } else {
             if (!Constants.ASTERISK.equals(channel) && env.equals(ChannelProxyConfigEnum.RUNTIME_ENV.getKeyVal(channel, proxyConfigMapper))) {
-                putConfigToRedis(channel);
+//                putConfigToRedis(channel);
                 Map<String, TcpProxyMapping> hostsByEmv = getHostsByEmv(channel, env).get(channel);
                 Map<String, TcpProxyMapping> channelHosts = server.getHosts().get(channel);
                 hostsByEmv = CollectionUtil.isEmpty(hostsByEmv) ? Collections.EMPTY_MAP : hostsByEmv;

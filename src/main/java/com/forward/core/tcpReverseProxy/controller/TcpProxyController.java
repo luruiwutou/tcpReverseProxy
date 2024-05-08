@@ -15,8 +15,11 @@ import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.HostUtils;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
+import com.forward.core.utils.HtmlEscaper;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringEscapeUtils;
+import org.owasp.esapi.ESAPI;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -332,9 +336,10 @@ public class TcpProxyController {
 
     @GetMapping("/runtime/env")
     public ResponseEntity runtimeEnv() {
-        return ResponseEntity.ok(ChannelProxyConfigEnum.RUNTIME_ENV.getChannelEnv(proxyConfigMapper));
+        List<ChannelProxyConfig> channelEnv = ChannelProxyConfigEnum.RUNTIME_ENV.getChannelEnv(proxyConfigMapper);
+        HtmlEscaper.escapeCollection(channelEnv);
+        return ResponseEntity.ok(channelEnv);
     }
-
     @GetMapping("/info")
     public ResponseEntity info() {
         return ResponseEntity.ok(JSON.toJSONString(server));

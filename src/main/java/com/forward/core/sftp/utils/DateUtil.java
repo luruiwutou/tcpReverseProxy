@@ -568,24 +568,6 @@ public class DateUtil {
         return localDateTime.toLocalTime();
     }
 
-    public static void main(String[] args) {
-        System.out.println(yearMonthDay());
-//        Date date = DateUtil.strToDate("20131104", "yyyyMMdd");
-//        System.out.println(date.toString());
-//        System.out.println(DateUtil.parse("20170102142312", "yyyyMMddHHmmss"));
-/*        System.out.println(DateUtil.format(new Date(),"yyyy-MM-dd"));
-        System.out.println(dateConvertLocalDateTime(new Date()));
-        System.out.println(localDateTimeConvertDate(LocalDateTime.now()));
-        System.out.println(getYesterdayDate());
-        System.out.println(getTomorrow());
-        System.out.println("------------------------------");
-        System.out.println(getIntervalDate(new Date(),DateUnit.YEAR,1));
-        System.out.println(getIntervalDateStr(new Date(),DateUnit.DAY,-5,"yyyy-MM-dd HH:mm:ss"));*/
-        //System.out.println(parse("2018/9/3 17:35:49", DateUtil.DATE_FORMAT_YYYYMMDDHHMMSS));
-        //System.out.println(parse("2018-09-10 11:00:00", "yyyy/MM/dd HH:mm:ss"));
-        //System.out.println(strToDate("2018-12-24",DateUtil.DATE_FORMAT_YYYYMMDDHHMMSS));
-
-    }    // 获取下一天
 
     public static Date getNextDay(Date date) {
         Calendar calendar = new GregorianCalendar();

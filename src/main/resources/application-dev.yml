@@ -8,7 +8,7 @@ spring:
     url: jdbc:h2:mem:gateway;DB_CLOSE_DELAY=-1;MODE=MySQL # mem指定数据库使用内存模式 MODE指定使用MySQL模式
     driver-class-name: org.h2.Driver
     username: root
-    password: 123456
+    password: ENC(jn6Y8mdMrlON84fLrNihfQ==)
   sql:
     init:
       schema-locations: classpath:h2/schema.sql
@@ -17,9 +17,6 @@ spring:
     console:
       enabled: true # 访问h2数据库控制台
 
-#    url: jdbc:mysql://localhost:3306/gateway?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&serverTimezone=Asia/Shanghai
-#    username: root
-#    password: 654321
 
 
   redis:

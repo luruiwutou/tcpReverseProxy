@@ -2,6 +2,7 @@ package com.forward.core.tcpReverseProxy;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.ReUtil;
 import com.alibaba.fastjson.JSON;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
@@ -38,6 +39,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -195,13 +197,24 @@ public class ReverseProxyServer {
         return (port) -> this.hosts.values().stream().flatMap(map -> map.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getEnv(), (existingValue, newValue) -> newValue)).get(port);
     }
 
+    private final Pattern PATTERN = Pattern.compile("^[a-zA-Z0-9_/\\\\.-]+$");
+
     public SslContext createServerSslContext(String env, String channel) throws Exception {
-        return SslContextBuilder.forServer(new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_PATH)), new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_KEY_PATH))).build();
+        String pemPath = redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_PATH);
+        String keyPath = redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_KEY_PATH);
+        if (ReUtil.isMatch(PATTERN, pemPath) && ReUtil.isMatch(PATTERN, keyPath)) {
+            return SslContextBuilder.forServer(new File(pemPath), new File(keyPath)).build();
+        }
+        throw new Exception("Path illegal, pemPath:" + pemPath + " keyPath:" + keyPath);
     }
 
 
     public SslContext createClientSslContext(String env, String channel) throws Exception {
-        return SslContextBuilder.forClient().trustManager(new File(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_PATH))).build();
+        String certPath = redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_PATH);
+        if (ReUtil.isMatch(PATTERN, certPath)) {
+            return SslContextBuilder.forClient().trustManager(new File(certPath)).build();
+        }
+        throw new Exception("Path illegal, certPath:" + certPath);
     }
 
     /**
@@ -420,8 +433,8 @@ public class ReverseProxyServer {
 //                            }
 //                        }
                         String[] strings = targetConnectionQueue.chooseOne(targetConnections);
-                        selectedClientPort=strings[0];
-                        selectedTarget=strings[1];
+                        selectedClientPort = strings[0];
+                        selectedTarget = strings[1];
                         if (selectedTarget != null) {
                             // 执行相关操作，如使用 selectedTarget 进行转发或其他处理
                             log.info("Selected target: {}", selectedTarget);

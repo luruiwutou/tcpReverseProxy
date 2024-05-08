@@ -19,8 +19,8 @@ INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`)
 -- INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (9, 'UAT_PROXY_CLIENT_IDLE_CONFIG', '240,0,0', '空闲配置', 'CUPY');
 ---- insert tcp_proxy_mapping
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (1, '192.168.21.5', '32235', NULL, 'localhost', '19002', 'UAT', 'CUPY');
-INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (2, '192.168.21.5', '32236', '-', 'localhost', '14551', 'UAT', 'EPSCO');
-INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (3, '192.168.21.5', '32236', '-', 'localhost', '14552', 'UAT', 'EPSCO');
+INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (2, '10.16.0.11', '32236', '-', 'localhost', '14551', 'UAT', 'EPSCO');
+INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (3, '10.16.0.11', '32236', '-', 'localhost', '14552', 'UAT', 'EPSCO');
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (4, '192.168.21.5', '19003', '-', 'localhost', '14553', 'UAT', 'CUPY');
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (5, '192.168.21.5', '19005', '-', 'localhost', '14554', 'UAT', 'CUPY');
 

@@ -205,19 +205,4 @@ public class CommonUtil {
         return sb.toString();
     }
 
-    public static void main(String[] args) {
-//        String s = "DC00002063".replaceAll("D", "").replaceAll("C", "");
-//        System.out.println(new BigDecimal(s).toString());
-//        System.out.println(new BigDecimal("0").divide(new BigDecimal("100")));
-//        TermTransaction t = new TermTransaction();
-//        t.setServiceFee(new BigDecimal("23.24"));
-//        t.setTransationAmount(new BigDecimal("100.23"));
-//        System.out.println(getTotalAmt(t));
-        System.out.println(leftToNumber("1", 2));
-
-        String s = roundHalfUp("509.718883");
-        System.out.println(s);
-
-
-    }
 }

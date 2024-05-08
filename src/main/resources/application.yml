@@ -38,3 +38,8 @@ management:
     web:
       exposure:
         include: "*" # 所有端点都可访问
+jasypt:
+  encryptor:
+    algorithm: PBEWithMD5AndDES
+    iv-generator-classname: org.jasypt.iv.NoIvGenerator
+    password: o2@18ansc^&5ia

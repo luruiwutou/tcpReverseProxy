@@ -29,6 +29,7 @@ public class Constants {
     public static final String DEFAULT_FIELD_LENGTH_KEY = "DEFAULT_FIELD_LENGTH_KEY";
     public static final String PROXY_CLIENT_OPEN_SSL = "PROXY_CLIENT_OPEN_SSL";
     public static final String PROXY_SERVER_OPEN_SSL = "PROXY_SERVER_OPEN_SSL";
+    // 数据库存储格式：'240,0,0,idleMsg',有心跳消息就写idleMsg,没有就不写
     public static final String PROXY_CLIENT_IDLE_CONFIG = "PROXY_CLIENT_IDLE_CONFIG";
     public static final String PROXY_SERVER_IDLE_CONFIG = "PROXY_SERVER_IDLE_CONFIG";
 

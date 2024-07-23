@@ -18,6 +18,7 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.ReferenceCountUtil;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -118,51 +119,29 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         String hostStr = getHostStr(ctx.channel().localAddress());
         if (targetChannel != null && targetChannel.isActive()) {
             log.info("Received from {} send to {}", getHostStr(ctx.channel().remoteAddress()), getTargetServerAddress());
-            getReadConsumer(targetChannel).accept(msg);
             readMsgCache(hostStr, targetChannel);
+            getReadConsumer(targetChannel).accept(msg);
         } else {
             log.info("target channel is not active {},connecting :{}", getTargetServerAddress(), isConnecting);
             if (null == targetChannel || !targetChannel.isActive()) {
-//                Long listSize = null;
-//                try {
-//                    listSize = getListSize(hostStr);
-//                    if (listSize != null && listSize < 1000) writeMsgCache(hostStr, msg);
-//                } catch (Exception e) {
-//                    log.info("drop msg:{}", ByteBufUtil.hexDump((ByteBuf) msg));
-//                }
                 if (!isConnecting) {
                     shouldReconnect = true;
                     connectToTarget(msg);
                 }
             } else if (null != targetChannel && targetChannel.isActive()) {
-                getReadConsumer(targetChannel).accept(msg);
                 readMsgCache(hostStr, targetChannel);
+                getReadConsumer(targetChannel).accept(msg);
             }
         }
         MDC.remove(Constants.TRACE_ID);
         ctx.channel().attr(Constants.TRACE_ID_KEY).set(null);
     }
 
-    private Long getListSize(String hostStr) throws Exception {
-        try {
-            return LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), () -> getRedisService().getListSize(hostStr));
-        } catch (Exception e) {
-            throw new Exception(e);
-        }
-    }
-
-
-    private void writeMsgCache(String hostStr, Object msg) throws Exception {
-        LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> {
-            getRedisService().writeMsgCache(hostStr, msg);
-        });
-    }
-
     private void readMsgCache(String hostStr, Channel channel) {
         try {
+            Long listSize = getRedisService().getListSize(hostStr);
+            if (null == listSize || listSize == 0) return;
             LockUtils.executeWithLock(clientChannels.stream().findAny().get().id().asLongText(), (v) -> {
-                Long listSize = getRedisService().getListSize(hostStr);
-                if (null == listSize || listSize == 0) return;
                 log.info("read msg cache from redis ,send to {}", getTargetServerAddress());
                 getRedisService().readMsgCache(hostStr, getReadConsumer(channel));
             });
@@ -174,9 +153,26 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     private Consumer getReadConsumer(Channel channel) {
         return msg -> {
             if (msg instanceof ByteBuf) {
+                ((ByteBuf) msg).retain();
                 log.info("{} send to target :{},Hex msg:{}", getHostStr(channel.localAddress()), getTargetServerAddress(), ByteBufUtil.hexDump((ByteBuf) msg));
             }
-            executorGroup.submit(() -> channel.writeAndFlush(msg));
+            executorGroup.submit(() -> {
+                try {
+                    channel.writeAndFlush(msg).addListener(future -> {
+                        if (!future.isSuccess()) {
+                            log.warn("Write failed", future.cause());
+                        }
+                        if (msg instanceof ByteBuf) {
+                            ReferenceCountUtil.release(msg); // 确保在任务结束后释放 ByteBuf
+                        }
+                    });
+                } catch (Exception e) {
+                    if (msg instanceof ByteBuf) {
+                        ReferenceCountUtil.release(msg); // 确保在任务结束后释放 ByteBuf
+                    }
+                    throw e;
+                }
+            });
         };
     }
 
@@ -229,7 +225,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
     public void connectToTarget(Object msg) {
         if (targetChannel == null || !targetChannel.isActive()) {
             isConnecting = true;
-            synchronized (targetLock) {
+            synchronized (clientChannels) {
                 if (targetChannel == null || !targetChannel.isActive()) {
                     try {
                         log.info("Lock connecting to target,lock key：{}", this.hashCode() + clientChannels.name());
@@ -286,6 +282,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
 
     final static Random random = new Random();
     QueueBalance<Channel> queueBalance = new QueueBalance<>();
+
     public ChannelFuture initClientBootstrap(Object msg) {
         if (targetChannel != null) {
             log.info("targetChannel :{} is exist", targetChannel);
@@ -321,7 +318,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                             }
 
                             @Override
-                            public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+                            public void channelRead(ChannelHandlerContext ctx, Object msg) {
                                 // 转发消息到客户端
                                 // 将耗时操作委托给 executorGroup 处理
                                 if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
@@ -329,6 +326,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                     MDC.put(Constants.TRACE_ID, traceId);
                                 }
                                 if (clientChannels.isEmpty()) {
+                                    ctx.flush();
                                     ctx.close();
                                     return;
                                 }
@@ -338,15 +336,17 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                             }
 
                             private void sendByClientChannels(Object msg) {
-                                List<Channel> collect = clientChannels.stream().filter(Channel::isWritable).collect(Collectors.toList());
+                                List<Channel> collect = clientChannels.stream().filter(Channel::isActive).collect(Collectors.toList());
                                 if (CollectionUtils.isEmpty(collect)) {
-                                    log.info("channelGroup {} is not writable", clientChannels.name());
-                                    if (getRedisService().isRedisConnected()) {
-                                        String longText = clientChannels.stream().findAny().get().id().asLongText();
-                                        log.info("write msg to redis ,channel id :{} ", longText);
-                                        getRedisService().writeMsgCache(longText, msg);
-                                    }
+                                    log.info("channelGroup {} is not active", clientChannels.name());
+                                    shutdown();
+                                    return;
                                 }
+//                                if (getRedisService().isRedisConnected()) {
+//                                    String longText = clientChannels.stream().findAny().get().id().asLongText();
+//                                    log.info("write msg to redis ,channel id :{} ", longText);
+//                                    getRedisService().writeMsgCache(longText, msg);
+//                                }
                                 if (msg instanceof ByteBuf) {
                                     ByteBuf buf = (ByteBuf) msg;
                                     if (buf.readableBytes() == 4) {
@@ -358,26 +358,60 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
                                     }
                                 }
 //                                int randomIndex = random.nextInt(collect.size());
-                                Channel randomChannel =queueBalance.chooseOne(collect);
-                                log.info("balance to each client :{}", randomChannel);
+                                Channel randomChannel = queueBalance.chooseOne(collect);
+                                if (null == randomChannel) {
+                                    log.info("no random channel,queueBalance:{}", queueBalance);
+                                    return;
+                                }
+                                log.info("balance to client :{}", randomChannel);
                                 String clientAddress = getHostStr(randomChannel.remoteAddress());
                                 log.info("client channel {} is writeable, {}", clientAddress, randomChannel);
                                 String traceId = MDC.get(Constants.TRACE_ID);
-                                executorGroup.submit(() -> {
-                                    if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
-                                        MDC.put(Constants.TRACE_ID, traceId);
-                                    }                                    // 转发消息到客户端
-                                    if (msg instanceof ByteBuf) {
-                                        log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientAddress, ByteBufUtil.hexDump((ByteBuf) msg));
-                                    }
+//                                executorGroup.submit(() -> {
+                                if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
+                                    MDC.put(Constants.TRACE_ID, traceId);
+                                }                                    // 转发消息到客户端
+                                if (msg instanceof ByteBuf) {
+                                    log.info("received from target server {},return to {},Hex msg:{}", getTargetServerAddress(), clientAddress, ByteBufUtil.hexDump((ByteBuf) msg));
+                                    ByteBuf byteBuf = (ByteBuf) msg;
+                                    byteBuf.retain(); // 保持引用计数，因为即将在异步操作中使用它
                                     log.info("client channel {} is active", clientAddress);
-                                    randomChannel.writeAndFlush(msg);
-                                    MDC.remove(Constants.TRACE_ID);
-                                });
+                                    writeIfWritable(randomChannel, msg);
+                                }
+//                                });
+                            }
+
+                            private void writeIfWritable(Channel channel, Object msg) {
+                                if (channel.isWritable()) {
+                                    try {
+                                        channel.writeAndFlush(msg).addListener(future -> {
+                                            if (!future.isSuccess()) {
+                                                log.warn("Write failed", future.cause());
+                                            }
+                                            ReferenceCountUtil.release(msg); // 确保在任务结束后释放 ByteBuf
+                                        });
+                                    } catch (Exception e) {
+                                        if (msg instanceof ByteBuf) {
+                                            ReferenceCountUtil.release(msg); // 确保在任务结束后释放 ByteBuf
+                                        }
+                                        throw e;
+                                    }
+                                } else {
+                                    // 处理写入缓冲区仍然不可写的情况，可以选择重试或者其他处理方式
+                                    log.info("Channel is still not writable: {}", channel);
+                                    retryWrite(channel, msg);
+                                }
+                            }
+
+                            private void retryWrite(Channel channel, Object msg) {
+                                // 使用 ScheduledExecutorService 实现重试逻辑，这里示意每隔一段时间重试一次
+                                executorGroup.schedule(() -> {
+                                    writeIfWritable(channel, msg);
+                                }, 1, TimeUnit.SECONDS); // 每隔1秒重试一次，可以根据实际需求调整
                             }
 
                             @Override
-                            public void channelInactive(ChannelHandlerContext ctx) throws Exception {
+                            public void channelInactive(ChannelHandlerContext ctx) {
                                 String traceId = SnowFlake.getTraceId();
                                 MDC.put(Constants.TRACE_ID, traceId);
                                 if (StringUtil.isNotEmpty(clientPort) && Constants.LOCAL_PORT_RULE_SINGLE.equals(clientPort)) {

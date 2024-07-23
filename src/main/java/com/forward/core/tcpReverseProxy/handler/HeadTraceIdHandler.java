@@ -30,7 +30,7 @@ public class HeadTraceIdHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelActive(ChannelHandlerContext ctx) throws Exception {
-        if (StringUtil.isEmpty(ctx.channel().attr(Constants.TRACE_ID_KEY).get())){
+        if (StringUtil.isEmpty(ctx.channel().attr(Constants.TRACE_ID_KEY).get())) {
             if (StringUtil.isEmpty(MDC.get(Constants.TRACE_ID))) {
                 setTraceId(ctx.channel());
             } else {

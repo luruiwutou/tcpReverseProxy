@@ -1,6 +1,6 @@
-package com.forward.core.controller;
+package com.forward.core.tcpReverseProxy.controller;
 
-import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
@@ -17,11 +17,10 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.util.EntityUtils;
+import org.owasp.esapi.ESAPI;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.*;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
@@ -34,20 +33,7 @@ import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
-
-//import org.apache.http.HttpEntity;
-//import org.apache.http.HttpHeaders;
-//import org.apache.http.HttpResponse;
-//import org.apache.http.client.config.RequestConfig;
-//import org.apache.http.client.methods.HttpPost;
-//import org.apache.http.conn.ssl.NoopHostnameVerifier;
-//import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
-//import org.apache.http.entity.ContentType;
-//import org.apache.http.entity.StringEntity;
-//import org.apache.http.impl.client.CloseableHttpClient;
-//import org.apache.http.impl.client.HttpClients;
-//import org.apache.http.ssl.SSLContextBuilder;
-//import org.apache.http.util.EntityUtils;
+import java.util.concurrent.*;
 
 /**
  * 做转发Http请求的转发
@@ -58,49 +44,68 @@ public class ForwardingController {
     @Autowired
     private RestTemplate restTemplate;
 
-//    @RequestMapping(value = "/get", method = RequestMethod.GET)
-//    public ResponseEntity<String> forwardRequest(@RequestParam String url) {
-//
-//        log.info("GET url:{} ", url);
-//        HttpHeaders headers = new HttpHeaders();
-//        headers.add("Accept", "application/json");
-//        HttpEntity<String> entity = new HttpEntity<>("parameters", headers);
-//
-//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-//
-//        log.info("response ", JSON.toJSONString(response));
-//        return response;
-//    }
-//
-//    @RequestMapping(value = "/post", method = RequestMethod.POST)
-//    public ResponseEntity<String> forwardPostRequest(@RequestParam String url, @RequestBody String requestBody) {
-//        log.info("POST url:{},requestBody:{} ", url, requestBody);
-//        HttpHeaders headers = new HttpHeaders();
-//        headers.add("Content-Type", "application/json");
-//        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
-//
-//        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-//
-//        log.info("response ", JSON.toJSONString(response));
-//        return response;
-//    }
+    @RequestMapping(value = "/get", method = RequestMethod.GET)
+    public ResponseEntity<String> forwardRequest(@RequestParam String url) {
+        try {
+            // 验证URL，确保它是有效且安全的
+            boolean isValidUrl = ESAPI.validator().isValidInput("Url Validation", url, "URL", 255, false);
+            if (!isValidUrl) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("url illegal");
+            }
+            ResponseEntity<String> response = getStringResponseEntity("Accept", "parameters", url, HttpMethod.GET);
+            // 记录响应日志
+            log.info("response: {}", response.getBody());
 
-//    @Resource
-//    protected HsmSendClient hsmClient;
-//
-//    @RequestMapping(value = "/hsm", method = RequestMethod.POST)
-//    public ResponseEntity<String> forwardPostRequest(@RequestBody String hexMsg) throws InterruptedException {
-//        log.info("do byte post start ");
-//        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg.getBytes())), HttpStatus.OK);
-//        return responseEntity;
-//    }
-//
-//    @RequestMapping(value = "/hsm/bytes", method = RequestMethod.POST)
-//    public ResponseEntity<String> forwardPostRequest(@RequestBody byte[] hexMsg) throws InterruptedException {
-//        log.info("do byte post start ");
-//        ResponseEntity responseEntity = new ResponseEntity(HsmUtils.hexToString(sendStringMsg(hexMsg)), HttpStatus.OK);
-//        return responseEntity;
-//    }
+            return response;
+        } catch (Exception e) {
+            // 异常处理
+            log.error("Error occurred while forwarding request: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("An error occurred while forwarding request.");
+        }
+    }
+
+    private ResponseEntity<String> getStringResponseEntity(String Accept, String parameters, String url, HttpMethod get) {
+        // 使用多线程处理转发请求
+        CompletableFuture<ResponseEntity<String>> future = CompletableFuture.supplyAsync(() -> {
+            // 设置HTTP头部
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(Accept, "application/json");
+            HttpEntity<String> entity = new HttpEntity<>(parameters, headers);
+            // 发送HTTP请求
+            ResponseEntity<String> response = restTemplate.exchange(url, get, entity, String.class);
+            return response;
+        }, executor);
+
+        ResponseEntity<String> response;
+        try {
+            // 等待并获取转发请求的响应
+            response = future.get(10, TimeUnit.SECONDS); // 例如，等待10秒钟
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            // 处理超时或异常情况
+            log.error("Error occurred during forwarding request: {}", e.getMessage());
+            response = ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Error occurred during forwarding request");
+        }
+        return response;
+    }
+
+    @Autowired
+    @Qualifier("httpTaskExecutor")
+    private Executor executor;
+
+    @RequestMapping(value = "/post", method = RequestMethod.POST)
+    public ResponseEntity<String> forwardPostRequest(@RequestParam String url, @RequestBody String requestBody) {
+        // 验证URL，确保它是有效且安全的
+        boolean isValidUrl = ESAPI.validator().isValidInput("Url Validation", url, "URL", 255, false);
+        if (!isValidUrl) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("url illegal");
+        }
+        log.info("POST url:{},requestBody:{} ", url, requestBody);
+        // 使用多线程处理转发请求
+        ResponseEntity<String> response = getStringResponseEntity("Content-Type", requestBody, url, HttpMethod.POST);
+        log.info("response ", JSON.toJSONString(response));
+        return response;
+    }
+
 
     /**
      * 发送byte消息

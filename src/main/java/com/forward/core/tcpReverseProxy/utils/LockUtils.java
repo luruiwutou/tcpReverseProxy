@@ -22,6 +22,8 @@ public class LockUtils {
 
     public static long defaultExpireTime = 30;
 
+    private static final int MAX_RETRY_COUNT = 10;
+    private static final long RETRY_INTERVAL_MS = 500;
     static {
         redisTemplate = SpringUtils.getBean("stringRedisTemplate");
     }
@@ -57,25 +59,38 @@ public class LockUtils {
     public static void executeWithLock(String lockKey, long expireTime, Consumer<Void> method) throws Exception {
         addTraceId();
         String requestId = UUID.randomUUID().toString();
-        // 加锁逻辑
-        boolean lockAcquired = acquireLock(lockKey, requestId, expireTime);
+        int retryCount = 0;
+        boolean lockAcquired = false;
+
+        while (retryCount < MAX_RETRY_COUNT) {
+            // 尝试获取锁
+            lockAcquired = acquireLock(lockKey, requestId, expireTime);
+            if (lockAcquired) {
+                break;
+            } else {
+                retryCount++;
+                log.info("=====Failed to acquire lock, retrying {}/{}=====", retryCount, MAX_RETRY_COUNT);
+                Thread.sleep(RETRY_INTERVAL_MS);
+            }
+        }
+
         try {
             log.info("=====Lock {} acquired :{}=====", lockKey, lockAcquired ? "success" : "failure");
             if (lockAcquired) {
                 // 获取锁成功，执行业务逻辑
                 method.accept(null);
             } else {
-                // 获取锁失败，可以根据需要处理
-                log.info("=====Failed to acquire lock, not allow execute=====");
-                throw new Exception("Failed to acquire lock");
+                // 获取锁失败，重试次数达到上限
+                log.info("=====Failed to acquire lock after {} attempts, not allowed to execute=====", MAX_RETRY_COUNT);
+                throw new Exception("Failed to acquire lock after maximum retries");
             }
         } finally {
-            if (lockAcquired)
+            if (lockAcquired) {
                 // 释放锁
                 releaseLock(lockKey, requestId);
+            }
         }
     }
-
     public static <T> T executeWithLock(String lockKey, long expireTime, Supplier<T> method, int maxRetryAttempts, long retryInterval) throws Exception {
         addTraceId();
         // 获取锁的过期时间

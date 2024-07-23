@@ -1,0 +1,63 @@
+server:
+  port: 8057
+spring:
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  datasource:
+    url: jdbc:h2:mem:gateway;DB_CLOSE_DELAY=-1;MODE=MySQL # mem指定数据库使用内存模式 MODE指定使用MySQL模式
+    driver-class-name: org.h2.Driver
+    username: root
+    password: ENC(jn6Y8mdMrlON84fLrNihfQ==)
+  sql:
+    init:
+      schema-locations: classpath:h2/schema.sql
+      data-locations: classpath:h2/usual-data.sql
+  h2:
+    console:
+      enabled: true # 访问h2数据库控制台
+  redis:
+    database: 2
+    host: 25.6.72.48
+    port: 6379
+    password:
+    timeout: 3000
+    lettuce:
+      pool:
+        enabled: true
+        max-active: 8
+        max-idle: 8
+        max-wait: -1
+        min-idle: 0
+#  redis:
+#    cluster:
+#      nodes:
+#        - 10.6.12.136:7001
+#        - 10.6.12.137:7003
+#        - 10.6.12.138:7005
+#        - 10.6.12.136:7002
+#        - 10.6.12.137:7004
+#        - 10.6.12.138:7006
+#      password:
+#    lettuce:
+#      pool:
+#        enabled: true
+#        max-active: 8
+#        max-idle: 8
+#        max-wait: -1
+#        min-idle: 0
+#    client:
+#      read-from: SLAVE_PREFERRED
+      # 其他可能的配置
+logging:
+  level:
+    com.forward.core.tcpReverseProxy.controller: debug
+    com.forward.core.tcpReverseProxy.mapper: debug
+
+mybatis-plus:
+  type-aliases-package: com.forward.core.tcpReverseProxy.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    auto-mapping-behavior: full
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+

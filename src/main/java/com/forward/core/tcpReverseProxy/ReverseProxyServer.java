@@ -28,6 +28,7 @@ import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang.StringUtils;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -219,6 +220,7 @@ public class ReverseProxyServer {
 
     /**
      * 存放自定义channelHandler
+     *
      * @return
      */
     private FourConsumer<String, String, String, SocketChannel> putCustomizeChannelHandler() {
@@ -252,7 +254,7 @@ public class ReverseProxyServer {
                             try {
                                 String[] split = idleConfig.split(",");
                                 channel.pipeline().addLast("idleStateHandler", new IdleStateHandler(Integer.valueOf(split[0]), Integer.valueOf(split[1]), Integer.valueOf(split[2])));
-                                channel.pipeline().addLast("nettyClientIdleEventHandler", new NettyClientIdleEventHandler());
+                                channel.pipeline().addLast("nettyClientIdleEventHandler", new HeartbeatHandler(split.length == 4 ? split[3] : null));
                             } catch (Exception e) {
                                 log.info("server add idle handler failed", e);
                             }
@@ -285,7 +287,7 @@ public class ReverseProxyServer {
                             try {
                                 String[] split = idleConfig.split(",");
                                 channel.pipeline().addLast("idleStateHandler", new IdleStateHandler(Integer.valueOf(split[0]), Integer.valueOf(split[1]), Integer.valueOf(split[2])));
-                                channel.pipeline().addLast("nettyClientIdleEventHandler", new NettyClientIdleEventHandler());
+                                channel.pipeline().addLast("nettyClientIdleEventHandler", new HeartbeatHandler(split.length == 4 ? split[3] : null));
                             } catch (Exception e) {
                                 log.info("client add idle handler failed", e);
                             }
@@ -326,8 +328,12 @@ public class ReverseProxyServer {
 
     private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers, FourConsumer<String, String, String, SocketChannel> putCustomizeChannelHandler, Function<String, String> getNowEnv) {
         ServerBootstrap bootstrap = new ServerBootstrap();
-        bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).option(ChannelOption.SO_BACKLOG, 128) //设置线程队列中等待连接的个数
-                .childOption(ChannelOption.SO_KEEPALIVE, true).option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 50000) // 设置连接超时时间为50秒
+        bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).option(ChannelOption.SO_BACKLOG, 256)
+                .childOption(ChannelOption.SO_KEEPALIVE, true)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 50000) // 设置连接超时时间为50秒
+                .childOption(ChannelOption.TCP_NODELAY, true)
+                .childOption(ChannelOption.SO_RCVBUF, 1048576)
+                .childOption(ChannelOption.SO_SNDBUF, 1048576)
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     private String targetHost;
                     private int targetPort;
@@ -387,7 +393,6 @@ public class ReverseProxyServer {
 
                     private Function<String[], String[]> getNewTarget() {
                         return (target) -> {
-                            log.info("getNewTarget");
                             setTarget();
                             if (CollectionUtils.isEmpty(targetConnections)) {
                                 return target;
@@ -400,6 +405,7 @@ public class ReverseProxyServer {
 //                            int index = random.nextInt(otherTarget.size());
 //                            String[] result = otherTarget.get(index);
                             String[] result = targetConnectionQueue.chooseOne(targetConnections);
+                            log.info("getNewTarget:{}",result);
                             return result;
                         };
                     }

@@ -29,14 +29,11 @@ import io.netty.handler.timeout.IdleStateHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang.StringUtils;
-import org.owasp.esapi.ESAPI;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
 import java.io.File;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -204,18 +201,18 @@ public class ReverseProxyServer {
     private final Pattern PATTERN = Pattern.compile("^[a-zA-Z0-9_/\\\\.-]+$");
 
     public SslContext createServerSslContext(String env, String channel) throws Exception {
-        String pemPath = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_PATH));
-        String keyPath = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_KEY_PATH));
-        return SslContextBuilder.forServer(new File(pemPath), new File(keyPath)).build();
+        String pemFileName = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_FILENAME));
+        String keyFileName = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_KEY_FILENAME));
+        return SslContextBuilder.forServer(new File(pemFileName), new File(keyFileName)).build();
     }
 
 
     public SslContext createClientSslContext(String env, String channel) throws Exception {
-        String certPath = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_PATH));
-        if (ReUtil.isMatch(PATTERN, certPath)) {
-            return SslContextBuilder.forClient().trustManager(new File(certPath)).build();
+        String certFileName = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_CERT_FILENAME));
+        if (ReUtil.isMatch(PATTERN, certFileName)) {
+            return SslContextBuilder.forClient().trustManager(new File(certFileName)).build();
         }
-        throw new Exception("Path illegal, certPath:" + certPath);
+        throw new Exception("Path illegal, certFileName:" + certFileName);
     }
 
     /**

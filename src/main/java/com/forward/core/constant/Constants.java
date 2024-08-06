@@ -35,9 +35,9 @@ public class Constants {
 
     public static final String TRUE_STR = "TRUE";
     public static final String FALSE_STR = "FALSE";
-    public static final String PATH_SSL_TSL_PEM_PATH = "PATH_SSL_TSL_PEM_PATH";
-    public static final String PATH_SSL_TSL_KEY_PATH = "PATH_SSL_TSL_KEY_PATH";
-    public static final String PATH_SSL_TSL_CERT_PATH = "PATH_SSL_TSL_CERT_PATH";
+    public static final String PATH_SSL_TSL_PEM_FILENAME = "PATH_SSL_TSL_PEM_PATH";
+    public static final String PATH_SSL_TSL_KEY_FILENAME = "PATH_SSL_TSL_KEY_PATH";
+    public static final String PATH_SSL_TSL_CERT_FILENAME = "PATH_SSL_TSL_CERT_PATH";
     public static final AttributeKey<String> TRACE_ID_KEY = AttributeKey.valueOf(Constants.TRACE_ID);
 //    public static final String[] DEFAULT_FIELD_LENGTH_VALUE=new String[]{"10240", "0",  "4" , "0","0"};
 }

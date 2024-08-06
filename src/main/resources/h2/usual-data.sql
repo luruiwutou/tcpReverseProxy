@@ -1,10 +1,10 @@
 -- insert proxy_config
 INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (21, 'DEFAULT_ENV', 'UAT', '默认sit环境', 'MYSQL');
 INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (22, 'RUNTIME_ENV', 'UAT', '运行时环境', 'MYSQL');
-INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (21, 'DEFAULT_ENV', 'UAT', '默认sit环境', 'REDIS');
-INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (22, 'RUNTIME_ENV', 'UAT', '运行时环境', 'REDIS');
-# INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (23, 'UAT_PROXY_CLIENT_IDLE_CONFIG', '240,0,0,/* ping */ SELECT 1', '空闲配置', 'MYSQL');
-INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (24, 'UAT_PROXY_CLIENT_IDLE_CONFIG', '240,0,0,PING\n', '空闲配置', 'REDIS');
+INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (23, 'DEFAULT_ENV', 'UAT', '默认sit环境', 'REDIS');
+INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (24, 'RUNTIME_ENV', 'UAT', '运行时环境', 'REDIS');
+-- INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (25, 'UAT_PROXY_CLIENT_IDLE_CONFIG', '240,0,0,/* ping */ SELECT 1', '空闲配置', 'MYSQL');
+INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`) VALUES (26, 'UAT_PROXY_CLIENT_IDLE_CONFIG', '240,5,0,PING\n', '空闲配置', 'REDIS');
 -- -- insert tcp_proxy_mapping
 -- UAT
 INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (15, '10.6.20.27', '3306', NULL, '10.71.34.214', '3306', 'UAT', 'MYSQL');

@@ -20,7 +20,6 @@ spring:
     database: 2
     host: 25.6.72.48
     port: 6379
-    password:
     timeout: 3000
     lettuce:
       pool:

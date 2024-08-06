@@ -87,4 +87,7 @@
         <appender-ref ref="INFO-LOG"/>
         <appender-ref ref="ERROR-LOG"/>
     </root>
+<!--    <root level="trace">-->
+<!--        <appender-ref ref="CONSOLE-LOG"/>-->
+<!--    </root>-->
 </configuration>

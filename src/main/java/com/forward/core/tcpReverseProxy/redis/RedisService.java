@@ -1,5 +1,6 @@
 package com.forward.core.tcpReverseProxy.redis;
 
+import cn.hutool.core.util.ReUtil;
 import com.forward.core.constant.Constants;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.entity.ChannelProxyConfig;
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 
 @Component
 @Slf4j
@@ -42,7 +44,7 @@ public class RedisService {
             return result;
         }
         Optional<ChannelProxyConfig> byConfKey = proxyConfigMapper.findByConfKey(channel, suffix);
-        if (byConfKey.isPresent()) {
+        if (byConfKey.isPresent()&& ReUtil.isMatch(Pattern.compile("^[a-zA-Z0-9_/\\\\.-]+$"), byConfKey.get().getConfVal())) {
             setStrValue(channel + Constants.UNDERLINE + suffix, byConfKey.get().getConfVal());
             result = byConfKey.get().getConfVal();
         }

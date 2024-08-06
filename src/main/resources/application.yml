@@ -42,4 +42,4 @@ jasypt:
   encryptor:
     algorithm: PBEWithMD5AndDES
     iv-generator-classname: org.jasypt.iv.NoIvGenerator
-    password: o2@18ansc^&5ia
+#    启动时使用配置密码： o2@18ansc^&5ia

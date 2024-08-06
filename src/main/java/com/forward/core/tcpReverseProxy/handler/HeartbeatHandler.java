@@ -49,8 +49,8 @@ public class HeartbeatHandler extends ChannelInboundHandlerAdapter {
         return pingPayload;
     }
 
-    public static void main(String[] args) {
-        String x = "PING\\n".replace("\\n", "\n");
-        System.out.println(x);
-    }
+//    public static void main(String[] args) {
+//        String x = "PING\\n".replace("\\n", "\n");
+//        System.out.println(x);
+//    }
 }

@@ -1,4 +1,4 @@
-package com.forward.core.tcpReverseProxy.utils.balance;
+package com.forward.core.utils.balance;
 
 import lombok.extern.slf4j.Slf4j;
 

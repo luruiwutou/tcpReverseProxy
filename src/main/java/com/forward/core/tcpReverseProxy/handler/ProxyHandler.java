@@ -6,7 +6,7 @@ import com.forward.core.tcpReverseProxy.redis.RedisService;
 import com.forward.core.tcpReverseProxy.utils.LockUtils;
 import com.forward.core.tcpReverseProxy.utils.SingletonBeanFactory;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
-import com.forward.core.tcpReverseProxy.utils.balance.QueueBalance;
+import com.forward.core.utils.balance.QueueBalance;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufUtil;

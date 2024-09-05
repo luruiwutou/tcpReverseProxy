@@ -1,8 +1,8 @@
 spring:
   application:
-    name: tcp-proxy
+    name: ${SPRING_APPLICATION_NAME}
   profiles:
-    active: dev
+    active: ${SPRING_PROFILES_ACTIVE}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     type: com.alibaba.druid.pool.DruidDataSource
@@ -42,4 +42,11 @@ jasypt:
   encryptor:
     algorithm: PBEWithMD5AndDES
     iv-generator-classname: org.jasypt.iv.NoIvGenerator
-#    启动时使用配置密码： o2@18ansc^&5ia
+    password: ${JASYPT_PASSWORD}
+
+logging:
+  file:
+    path: ${LOG_PATH:/home/chiyu/logs/logback}
+  level:
+    com.forward.core.tcpReverseProxy.controller: debug
+    com.forward.core.tcpReverseProxy.mapper: debug

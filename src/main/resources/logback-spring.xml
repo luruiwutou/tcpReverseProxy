@@ -1,36 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
     <property resource="logback-spring.xml"/>
-    <property name="appName" value="atmp_tcp_proxy"/>
-    <springProfile name="dev">
-        <property name="LOG_INFO_HOME" value="proxy_logback_info"/>
-        <property name="LOG_ERROR_HOME" value="proxy_logback_error"/>
-        <property name="LOG_HISTORY_HOME" value="proxy_logback_history"/>
-    </springProfile>
-    <springProfile name="epsco">
-        <property name="LOG_INFO_HOME" value="/home/chiyu/logs/logback/tcp_proxy_epsco/info"/>
-        <property name="LOG_ERROR_HOME" value="/home/chiyu/logs/logback/tcp_proxy_epsco/error"/>
-        <property name="LOG_HISTORY_HOME" value="/home/chiyu/logs/logback/tcp_proxy_epsco/history"/>
-    </springProfile>
-    <springProfile name="cupy">
-        <property name="LOG_INFO_HOME" value="/home/chiyu/logs/logback/tcp_proxy_cupy/info"/>
-        <property name="LOG_ERROR_HOME" value="/home/chiyu/logs/logback/tcp_proxy_cupy/error"/>
-        <property name="LOG_HISTORY_HOME" value="/home/chiyu/logs/logback/tcp_proxy_cupy/history"/>
-    </springProfile>
-    <springProfile name="jetco">
-        <property name="LOG_INFO_HOME" value="/home/chiyu/logs/logback/tcp_proxy_jetco/info"/>
-        <property name="LOG_ERROR_HOME" value="/home/chiyu/logs/logback/tcp_proxy_jetco/error"/>
-        <property name="LOG_HISTORY_HOME" value="/home/chiyu/logs/logback/tcp_proxy_jetco/history"/>
-    </springProfile>
-    <springProfile name="usual">
-        <property name="LOG_INFO_HOME" value="/home/chiyu/logs/logback/tcp_proxy_usual/info"/>
-        <property name="LOG_ERROR_HOME" value="/home/chiyu/logs/logback/tcp_proxy_usual/error"/>
-        <property name="LOG_HISTORY_HOME" value="/home/chiyu/logs/logback/tcp_proxy_usual/history"/>
-    </springProfile>
+    <property name="appName" value="${SPRING_APPLICATION_NAME}"/>
+    <property name="logPath" value="${LOG_PATH}"/>
+    <!-- Define default values using a conditional appender -->
+    <property name="LOG_INFO_HOME" value="${logPath}/${appName}/info"/>
+    <property name="LOG_ERROR_HOME" value="${logPath}/${appName}/error"/>
+    <property name="LOG_HISTORY_HOME" value="${logPath}/${appName}/history"/>
     <appender name="CONSOLE-LOG" class="ch.qos.logback.core.ConsoleAppender">
         <layout class="ch.qos.logback.classic.PatternLayout">
-            <pattern>%d{yyyy-MM-dd' 'HH:mm:ss.sss} [%thread][traceId-%X{traceId}] %-5level %logger{36} [%line] - %msg%n
-            </pattern>
+            <pattern>[%d{yyyy-MM-dd' 'HH:mm:ss.sss}] [%t][traceId-%X{traceId}] [%C] [%L] [%-5p] %m%n</pattern>
         </layout>
     </appender>
     <!--获取比info级别高(包括info级别)但除error级别的日志-->
@@ -53,7 +32,7 @@
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
             <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
-                <maxFileSize>10MB</maxFileSize>
+                <maxFileSize>30MB</maxFileSize>
             </timeBasedFileNamingAndTriggeringPolicy>
         </rollingPolicy>
     </appender>
@@ -77,7 +56,7 @@
 
             <timeBasedFileNamingAndTriggeringPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
                 <!-- maxFileSize:这是活动文件的大小，默认值是10MB，测试时可改成1KB看效果 -->
-                <maxFileSize>10MB</maxFileSize>
+                <maxFileSize>30MB</maxFileSize>
             </timeBasedFileNamingAndTriggeringPolicy>
 
         </rollingPolicy>
@@ -87,7 +66,4 @@
         <appender-ref ref="INFO-LOG"/>
         <appender-ref ref="ERROR-LOG"/>
     </root>
-<!--    <root level="trace">-->
-<!--        <appender-ref ref="CONSOLE-LOG"/>-->
-<!--    </root>-->
 </configuration>

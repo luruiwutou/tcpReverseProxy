@@ -10,7 +10,7 @@
     </parent>
     <groupId>com.luruiwutou</groupId>
     <artifactId>tcp-reverse-proxy</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>tcp-reverse-proxy</name>
     <description>tcp-reverse-proxy</description>
     <properties>
@@ -238,7 +238,7 @@
                 <filtering>false</filtering>
             </resource>
         </resources>
-        <finalName>tcp-reverse-proxy</finalName>
+        <finalName>tcp-reverse-proxy-1.0.0</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -21,13 +21,6 @@ spring:
     host: 25.6.72.48
     port: 6379
     timeout: 3000
-    lettuce:
-      pool:
-        enabled: true
-        max-active: 8
-        max-idle: 8
-        max-wait: -1
-        min-idle: 0
 #  redis:
 #    cluster:
 #      nodes:
@@ -38,16 +31,15 @@ spring:
 #        - 10.6.12.137:7004
 #        - 10.6.12.138:7006
 #      password:
-#    lettuce:
-#      pool:
-#        enabled: true
-#        max-active: 8
-#        max-idle: 8
-#        max-wait: -1
-#        min-idle: 0
 #    client:
 #      read-from: SLAVE_PREFERRED
-      # 其他可能的配置
+    lettuce:
+      pool:
+        enabled: true
+        max-active: 8
+        max-idle: 8
+        max-wait: -1
+        min-idle: 0
 logging:
   level:
     com.forward.core.tcpReverseProxy.controller: debug

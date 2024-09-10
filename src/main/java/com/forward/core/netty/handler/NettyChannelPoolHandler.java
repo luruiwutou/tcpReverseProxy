@@ -1,31 +1,27 @@
 package com.forward.core.netty.handler;
 
-import com.forward.core.netty.handler.ClientExceptionHandler;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
-import io.netty.channel.EventLoopGroup;
 import io.netty.channel.pool.ChannelPoolHandler;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Slf4j
 @ChannelHandler.Sharable
 public class NettyChannelPoolHandler implements ChannelPoolHandler {
 
-    private final Map<String, ChannelHandler> customChannelHandlers;
+    private final Consumer<Channel> customizeHandlerMapCon;
 
-    private final EventLoopGroup workerGroup;
     private AtomicInteger activeConnections = new AtomicInteger(0);
 
-    public NettyChannelPoolHandler(Map<String, ChannelHandler> customChannelHandlers, EventLoopGroup workerGroup) {
-        this.customChannelHandlers = customChannelHandlers;
-        this.workerGroup = workerGroup;
+    public NettyChannelPoolHandler(Consumer<Channel> customizeHandlerMapCon) {
+        this.customizeHandlerMapCon = customizeHandlerMapCon;
     }
 
     @Override
@@ -47,10 +43,7 @@ public class NettyChannelPoolHandler implements ChannelPoolHandler {
         SocketChannel channel = (SocketChannel) ch;
         channel.config().setKeepAlive(true);
         channel.config().setTcpNoDelay(true);
-        if (customChannelHandlers != null) {
-            customChannelHandlers
-                    .forEach((name, channelHandler) -> channel.pipeline().addLast(workerGroup, name, channelHandler).addLast(new LoggingHandler(LogLevel.DEBUG)));
-        }
+        customizeHandlerMapCon.accept(ch);
         channel.pipeline().addLast(new LoggingHandler(LogLevel.DEBUG))
                 .addLast("exceptionHandler", new ClientExceptionHandler())
                 .fireChannelReadComplete();

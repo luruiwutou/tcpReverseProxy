@@ -1,6 +1,7 @@
 package com.forward.core.netty.config;
 
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.util.List;
 
@@ -10,13 +11,18 @@ import java.util.List;
  */
 //@ConfigurationProperties(prefix = "jetco.netty.client-pool")
 @Data
+@NoArgsConstructor
 public class NettyClientPoolProperties {
 
 
     /**
-     * client 配置
+     * server 配置
      */
-    private List<String> clients;
+    private List<String> servers;
+    /**
+     * server 配置
+     */
+    private String port = null;
     /**
      * 读超时处理时间：四分半
      */
@@ -51,4 +57,9 @@ public class NettyClientPoolProperties {
      * 重连次数
      */
     private int retryTimes = 3000;
+
+    public NettyClientPoolProperties(List<String> servers, String port) {
+        this.servers = servers;
+        this.port = port;
+    }
 }

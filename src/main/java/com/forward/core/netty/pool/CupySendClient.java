@@ -1,14 +1,13 @@
 package com.forward.core.netty.pool;
 
 import com.forward.core.netty.config.NettyClientPoolProperties;
-import com.forward.core.netty.handler.NettyChannelPoolHandler;
 import com.forward.core.utils.TraceIdThreadLocal;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.DefaultEventLoop;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.AttributeKey;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.Promise;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -17,6 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 @Slf4j
 public class CupySendClient<T> {
@@ -42,20 +42,22 @@ public class CupySendClient<T> {
     public static final AttributeKey<ClientRequestContext> CURRENT_REQ_BOUND_WITH_THE_CHANNEL =
             AttributeKey.valueOf("CURRENT_REQ_BOUND_WITH_THE_CHANNEL");
 
-    private final NettyChannelPoolHandler nettyChannelPoolHandler;
-    private final NettyClientPoolProperties clientConfig;
+    private final Consumer<Channel> customizeHandlerMapCon;
+    private final EventLoopGroup workerGroup;
+    private final EventLoopGroup bossGroup;
+    NettyClientPool nettyClientPool;
 
     public NettyClientPool getNettyClientPool() {
-        return NettyClientPool.getInstance(nettyChannelPoolHandler, clientConfig);
+        return nettyClientPool;
     }
 
-    /**
-     * netty channel池
-     */
 
-    public CupySendClient(NettyChannelPoolHandler nettyChannelPoolHandler, NettyClientPoolProperties clientConfig) {
-        this.nettyChannelPoolHandler = nettyChannelPoolHandler;
-        this.clientConfig = clientConfig;
+
+    public CupySendClient(Consumer<Channel> customizeHandlerMapCon, NettyClientPoolProperties clientConfig, EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
+        this.customizeHandlerMapCon = customizeHandlerMapCon;
+        this.bossGroup = bossGroup;
+        this.workerGroup = workerGroup;
+        this.nettyClientPool =  new NettyClientPool(customizeHandlerMapCon, workerGroup, bossGroup, clientConfig);
     }
 
     /**
@@ -75,7 +77,7 @@ public class CupySendClient<T> {
         Channel channel = getChannel(serverAddress);
         log.info("拿到channel");
         send(message, channel);
-        NettyClientPool.release(channel);
+        nettyClientPool.release(channel);
     }
 
     /**
@@ -87,18 +89,26 @@ public class CupySendClient<T> {
      * @return
      */
     private Channel getChannel(String serverAddress) {
-        NettyClientPool instance = NettyClientPool.getInstance(nettyChannelPoolHandler, clientConfig);
-        log.info("准备从pool中获取channel");
-        return instance.getChannel(serverAddress);
+        return nettyClientPool.getChannel(serverAddress);
+    }
+
+    public void initChannel() {
+        initChannel(null);
+    }
+
+    public void initChannel(String serverAddress) {
+        log.info("准备从pool中初始化channel");
+        Channel channel = getChannel(serverAddress);
+        nettyClientPool.release(channel);
     }
 
 
     private void send(T message, Channel channel) {
+        String traceId = TraceIdThreadLocal.get();
         log.info("准备发送报文到目的地");
         log.info("channel local address:{} send msg to remote address:{}.", channel.localAddress(), channel.remoteAddress());
         ChannelFuture channelFuture = channel.writeAndFlush(message);
         log.info("发送报文到目的地 write and Flush结束");
-        String traceId = TraceIdThreadLocal.get();
         channelFuture.addListener(future -> {
             MDC.put("traceId", traceId);
             log.info("send complete!");
@@ -117,18 +127,18 @@ public class CupySendClient<T> {
     public <T, R> R sendAndGet(T message, long timeout, TimeUnit timeUnit) {
         Channel channel = getChannel(null);
         R msg = sendAndGet(message, timeout, timeUnit, channel);
-        NettyClientPool.release(channel);
+        nettyClientPool.release(channel);
         return msg;
     }
 
     public <T, R> R sendAndGet(String serverAddress, T message, long timeout, TimeUnit timeUnit) {
         Channel channel = getChannel(serverAddress);
         R msg = sendAndGet(message, timeout, timeUnit, channel);
-        NettyClientPool.release(channel);
+        nettyClientPool.release(channel);
         return msg;
     }
 
-    private <T, V> V sendAndGet(T message, long timeout, TimeUnit timeUnit, Channel channel)  {
+    private <T, V> V sendAndGet(T message, long timeout, TimeUnit timeUnit, Channel channel) {
         Promise<V> defaultPromise = NETTY_RESPONSE_PROMISE_NOTIFY_EVENT_LOOP.newPromise();
         ClientRequestContext context = new ClientRequestContext(message, defaultPromise);
         channel.attr(CURRENT_REQ_BOUND_WITH_THE_CHANNEL).set(context);
@@ -172,5 +182,10 @@ public class CupySendClient<T> {
         }
         log.error("wait result time out ");
         return null;
+    }
+    public void destroyNettyClientPool() {
+        log.info("destroy netty client pool");
+        workerGroup.shutdownGracefully();
+        bossGroup.shutdownGracefully();
     }
 }

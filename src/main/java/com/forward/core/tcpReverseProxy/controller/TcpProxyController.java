@@ -308,17 +308,13 @@ public class TcpProxyController {
             if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
                 continue;
             }
-            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().getTargetConnections().stream().anyMatch(array -> array[1].equals(proxyHandler.getTargetServerAddress()))).forEach(handler -> {
-                log.info("close non config target address:{}", handler.getTargetServerAddress());
+            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().getTargetConnections().stream().anyMatch(array -> array[0].equals(proxyHandler.getClientPort()))).forEach(handler -> {
+                log.info("reset client pool");
                 handler.initiativeReconnected();
             });
         }
     }
 
-    @GetMapping("/stopTarget/{hostPort}/{targetHost}")
-    public void stopTarget(@PathVariable String hostPort, @PathVariable String targetHost) throws Exception {
-        server.stopTargetServer(hostPort, targetHost);
-    }
 
     @GetMapping("/stopServerPost")
     public void stopServerPost(@RequestParam String... serverPorts) throws Exception {

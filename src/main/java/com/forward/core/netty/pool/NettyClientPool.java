@@ -2,6 +2,7 @@ package com.forward.core.netty.pool;
 
 import cn.hutool.core.collection.CollectionUtil;
 import com.alibaba.fastjson.JSON;
+import com.forward.core.constant.Constants;
 import com.forward.core.netty.DataBusConstant;
 import com.forward.core.netty.config.NettyClientPoolProperties;
 import com.forward.core.netty.handler.NettyChannelPoolHandler;
@@ -12,7 +13,6 @@ import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.pool.AbstractChannelPoolMap;
 import io.netty.channel.pool.ChannelPoolMap;
 import io.netty.channel.pool.FixedChannelPool;
@@ -26,6 +26,7 @@ import org.slf4j.MDC;
 import java.net.InetSocketAddress;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 
 @Slf4j
 public class NettyClientPool {
@@ -39,19 +40,37 @@ public class NettyClientPool {
      */
     public ChannelPoolMap<InetSocketAddress, FixedChannelPool> poolMap;
 
-    final EventLoopGroup group = new NioEventLoopGroup();
+    final EventLoopGroup bossGroup;
+    private final EventLoopGroup workerGroup;
     final Bootstrap strap = new Bootstrap();
 
-    volatile private static Map<InetSocketAddress, FixedChannelPool> pools = new HashMap<>(4);
-    volatile private static List<InetSocketAddress> addressList;
+    private Map<InetSocketAddress, FixedChannelPool> pools = new HashMap<>(4);
+    private List<InetSocketAddress> addressList;
+    private Map<InetSocketAddress, NettyChannelPoolHandler> poolHandlers = new HashMap<>(4);
 
-    private final NettyClientPoolProperties clientConfig;;
-    private final NettyChannelPoolHandler nettyChannelPoolHandler;
+    public NettyClientPoolProperties getClientConfig() {
+        return clientConfig;
+    }
 
-    private QueueBalance<InetSocketAddress> queueBalance=new QueueBalance<>();
-    public NettyClientPool(NettyChannelPoolHandler nettyChannelPoolHandler, NettyClientPoolProperties clientConfig) {
+    public EventLoopGroup getWorkerGroup() {
+        return workerGroup;
+    }
+
+    public Map<InetSocketAddress, NettyChannelPoolHandler> getPoolHandlers() {
+        return poolHandlers;
+    }
+
+    private final Consumer<Channel> customizeHandlerMapCon;
+    private final NettyClientPoolProperties clientConfig;
+
+    private QueueBalance<InetSocketAddress> queueBalance = new QueueBalance<>();
+
+
+    public NettyClientPool(Consumer<Channel> customizeHandlerMapCon, EventLoopGroup workerGroup, EventLoopGroup bossGroup, NettyClientPoolProperties clientConfig) {
         this.clientConfig = clientConfig;
-        this.nettyChannelPoolHandler = nettyChannelPoolHandler;
+        this.customizeHandlerMapCon = customizeHandlerMapCon;
+        this.workerGroup = workerGroup;
+        this.bossGroup = bossGroup;
         build();
     }
 
@@ -60,25 +79,29 @@ public class NettyClientPool {
      *
      * @return
      */
-    public static NettyClientPool getInstance(NettyChannelPoolHandler nettyChannelPoolHandler, NettyClientPoolProperties clientConfig) {
-        if (nettyClientPool == null) {
-            synchronized (NettyClientPool.class) {
-                if (nettyClientPool == null) {
-                    nettyClientPool = new NettyClientPool(nettyChannelPoolHandler, clientConfig);
-                }
-            }
-        }
-        return nettyClientPool;
-    }
-
+//    public static NettyClientPool getInstance(Consumer<Channel> customizeHandlerMapCon, EventLoopGroup workerGroup, EventLoopGroup bossGroup, NettyClientPoolProperties clientConfig) {
+//        if (nettyClientPool == null) {
+//            synchronized (NettyClientPool.class) {
+//                if (nettyClientPool == null) {
+//                    nettyClientPool = new NettyClientPool(customizeHandlerMapCon, workerGroup, bossGroup, clientConfig);
+//                }
+//            }
+//        }
+//        return nettyClientPool;
+//    }
     public void build() {
         log.info("NettyClientPool 创建......");
-        strap.group(group).channel(NioSocketChannel.class).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_REUSEADDR, true).option(ChannelOption.SO_KEEPALIVE, true);
-        getInetAddresses(clientConfig.getClients());
+        strap.group(bossGroup).channel(NioSocketChannel.class).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_REUSEADDR, true).option(ChannelOption.SO_KEEPALIVE, true);
+        putInetAddresses(clientConfig.getServers());
 
         poolMap = new AbstractChannelPoolMap<InetSocketAddress, FixedChannelPool>() {
             @Override
             protected FixedChannelPool newPool(InetSocketAddress key) {
+                NettyChannelPoolHandler nettyChannelPoolHandler = new NettyChannelPoolHandler(customizeHandlerMapCon);
+                poolHandlers.put(key, nettyChannelPoolHandler);
+                if (StringUtil.isNotEmpty(clientConfig.getPort()) && !Constants.LOCAL_PORT_RULE_SINGLE.equals(clientConfig.getPort())) {
+                    strap.localAddress(Integer.parseInt(clientConfig.getPort()));
+                }
                 return new FixedChannelPool(strap.remoteAddress(key), nettyChannelPoolHandler, clientConfig.getPoolSize() / addressList.size());
             }
         };
@@ -105,43 +128,41 @@ public class NettyClientPool {
      * @return io.netty.channel.Channel
      */
     public Channel getChannel(String serverAddress) {
+        log.info("准备从pool中获取channel");
         return getChannel(serverAddress, 0);
     }
+
     public Channel getChannel(String serverAddress, long retry) {
         log.info("NettyPool GetChannel 开始");
         Channel channel = null;
         try {
             //按时间戳取余
-            InetSocketAddress address =null;
+            InetSocketAddress address = null;
             if (StringUtil.isNotBlank(serverAddress)) {
                 Optional<InetSocketAddress> inetSocketAddress = addressList.stream().filter(socket -> serverAddress.equals(socket.toString().split("/")[1])).findAny();
                 if (inetSocketAddress.isPresent()) {
                     address = inetSocketAddress.get();
                 }
-            }else {
+            } else {
                 address = queueBalance.chooseOne(addressList);
             }
-            log.info("pool address {}",address);
-            FixedChannelPool pool = pools.get(address);
-            String traceId = TraceIdThreadLocal.get();
-            Future<Channel> future = pool.acquire().addListener(futureListener -> {
-                MDC.put("traceId", traceId);
-                log.info("|-->获取Channel. Channel ID: {}", futureListener.isSuccess() ? ((Channel) futureListener.get()).id() : "failed");
-                MDC.remove("traceId");
-            });
-            channel = future.get();
-            AttributeKey<InetSocketAddress> randomID = AttributeKey.valueOf(DataBusConstant.RANDOM_KEY);
-            //添加TraceId
-            Attribute<String> traceIdAttr = channel.attr(AttributeKey.valueOf("traceId"));
-            traceIdAttr.set(traceId);
-            channel.attr(randomID).set(address);
+            synchronized (address) {
+                log.info("pool address {}", address);
+                FixedChannelPool pool = pools.get(address);
+                String traceId = TraceIdThreadLocal.get();
+                Future<Channel> future = pool.acquire();
+                channel = future.get();
+                AttributeKey<InetSocketAddress> randomID = AttributeKey.valueOf(DataBusConstant.RANDOM_KEY);
+                //添加TraceId
+                Attribute<String> traceIdAttr = channel.attr(AttributeKey.valueOf(Constants.TRACE_ID));
+                traceIdAttr.set(traceId);
+                channel.attr(randomID).set(address);
+            }
             //如果是因为服务端挂点，连接失败而获取不到channel，则随机数执行+1操作，从下一个池获取
         } catch (ExecutionException e) {
             log.info("NettyPool GetChannel 失败 尝试重新获取");
             log.error(e.getMessage());
-            //每个池，尝试获取取2次
-            int count = 2;
-            if (retry < addressList.size() * count) {
+            if (retry < clientConfig.getRetryTimes()) {
                 return getChannel(serverAddress, ++retry);
             } else {
                 log.error("没有可以获取到channel连接的server，server list [{}]", addressList);
@@ -154,7 +175,7 @@ public class NettyClientPool {
             e.printStackTrace();
             log.error("获取channel 异常", e);
         }
-        log.info("NettyPool GetChannel 结束，channel为 {},{}", channel);
+        log.info("NettyPool GetChannel 结束，channel为 {}", channel);
         return channel;
     }
 
@@ -167,7 +188,7 @@ public class NettyClientPool {
      * @param ch
      * @return void
      */
-    public static void release(Channel ch) {
+    public void release(Channel ch) {
         InetSocketAddress address = ch.attr(AttributeKey.<InetSocketAddress>valueOf(DataBusConstant.RANDOM_KEY)).get();
         ch.flush();
         String traceId = TraceIdThreadLocal.get();
@@ -187,7 +208,7 @@ public class NettyClientPool {
      * @param addresses
      * @return void
      */
-    public void getInetAddresses(List<String> addresses) {
+    public void putInetAddresses(List<String> addresses) {
         addressList = new ArrayList<>(4);
         if (CollectionUtil.isEmpty(addresses)) {
             throw new RuntimeException("address列表为空");
@@ -200,4 +221,5 @@ public class NettyClientPool {
             addressList.add(new InetSocketAddress(split[0], Integer.parseInt(split[1])));
         }
     }
+
 }

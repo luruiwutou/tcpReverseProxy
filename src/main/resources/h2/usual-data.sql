@@ -8,7 +8,8 @@ INSERT INTO `proxy_config`(`id`, `conf_key`, `conf_val`, `conf_desc`, `channel`)
 -- -- insert tcp_proxy_mapping
 -- UAT
 INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (15, '10.6.20.27', '3306', NULL, '10.71.34.214', '3306', 'UAT', 'MYSQL');
-INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (20, '10.6.20.27', '6379', NULL, '10.71.35.212', '6379', 'UAT', 'REDIS');
+-- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (20, '10.6.20.27', '6379', NULL, '10.71.35.212', '6379', 'UAT', 'REDIS');
+INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (20, '10.6.20.27', '6379', NULL, '10.71.36.146', '6379', 'UAT', 'REDIS');
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (21, '10.6.20.27', '19005', '-', '203.184.81.84', '14552', 'UAT', 'CUPY');
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (23, '10.6.20.27', '19001', NULL, '25.6.72.42', '19003', 'UAT', 'CUPY');
 -- INSERT INTO `tcp_proxy_mapping`(`id`, `local_host`, `local_port`, `local_client_port`, `target_host`, `target_port`, `env`, `channel`) VALUES (27, '10.6.20.28', '19002', NULL, '25.6.72.42', '19003', 'UAT', 'CUPY');

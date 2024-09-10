@@ -42,7 +42,10 @@ INSERT INTO `tcp_proxy_mapping` VALUES (null, '10.6.xx.xx', '20112', '8998','25.
 INSERT INTO `tcp_proxy_mapping` VALUES (null, '10.6.xx.xx', '20113', '','25.xx.xx.40', '20115', 'sit','jetco');
 
 ```
-- `tcp_proxy_mapping`表中字段`local_client_port`**额外说明**:
+
+- `tcp_proxy_mapping`表中字段`local_port`指定了此服务器监听的端口，监听的端口所用到的`local_client_port`应保持一致，否则只取第一个`local_client_port`的规则进行使用
+- `tcp_proxy_mapping`表中字段`local_client_port`
+- **额外说明**:
   - `local_client_port` = `具体端口` ：意味着指定使用此端口向目标服务器发送消息、当目标服务器断开此连接之后会自动重连
   - `local_client_port` = `-` ：意味着使用随机端口向目标服务器发送消息，但是目标断开此连接后不会自动重连
   - `local_client_port` = `''`|`null`:意味着使用随机端口向目标服务器发送消息，并会自动重连

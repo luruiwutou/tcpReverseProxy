@@ -16,28 +16,28 @@ spring:
   h2:
     console:
       enabled: true # 访问h2数据库控制台
-#  redis:
+  redis:
 #    database: 1
 #    host: 25.6.72.48
 #    port: 6379
-#    timeout: 3000
-#    lettuce:
-#      pool:
-#        enabled: true
-#        max-active: 8
-#        max-idle: 8
-#        max-wait: -1
-#        min-idle: 0
-  redis:
+    timeout: 3000
+    password: ENC(lFYraEAj1roSlk834elKmE60UARweE3v)
     cluster:
       nodes:
-        - 10.6.12.136:7001
-        - 10.6.12.137:7003
-        - 10.6.12.138:7005
-        - 10.6.12.136:7002
-        - 10.6.12.137:7004
-        - 10.6.12.138:7006
-      password:
+        - 10.71.36.146:6379
+      client:
+        read-from: SLAVE_PREFERRED
+#  redis:
+#    cluster:
+#      nodes:
+#        - 10.6.12.136:7001
+#        - 10.6.12.137:7003
+#        - 10.6.12.138:7005
+#        - 10.6.12.136:7002
+#        - 10.6.12.137:7004
+#        - 10.6.12.138:7006
+#    client:
+#      read-from: SLAVE_PREFERRED
     lettuce:
       pool:
         enabled: true
@@ -45,8 +45,6 @@ spring:
         max-idle: 8
         max-wait: -1
         min-idle: 0
-    client:
-      read-from: SLAVE_PREFERRED
       # 其他可能的配置
 logging:
   level:

@@ -36,9 +36,3 @@ logging:
     com.forward.core.tcpReverseProxy.controller: debug
     com.forward.core.tcpReverseProxy.mapper: debug
 
-mybatis-plus:
-  type-aliases-package: com.forward.core.tcpReverseProxy.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    auto-mapping-behavior: full
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

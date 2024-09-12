@@ -201,7 +201,7 @@ public class ReverseProxyServer {
         return (port) -> this.hosts.values().stream().flatMap(map -> map.entrySet().stream()).collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().getEnv(), (existingValue, newValue) -> newValue)).get(port);
     }
 
-    private final Pattern PATTERN = Pattern.compile("^[a-zA-Z0-9_/\\\\.-]+$");
+    private final Pattern PATTERN = Pattern.compile("^[a-zA-Z0-9_,/\\\\.-]+$");
 
     public SslContext createServerSslContext(String env, String channel) throws Exception {
         String pemFileName = SecureFileAccess.getSafePath(redisService.getStrValueByEnvAndChannelAndKey(env, channel, Constants.PATH_SSL_TSL_PEM_FILENAME));

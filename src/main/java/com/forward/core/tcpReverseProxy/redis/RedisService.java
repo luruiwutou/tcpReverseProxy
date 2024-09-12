@@ -44,7 +44,8 @@ public class RedisService {
             return result;
         }
         Optional<ChannelProxyConfig> byConfKey = proxyConfigMapper.findByConfKey(channel, suffix);
-        if (byConfKey.isPresent()&& ReUtil.isMatch(Pattern.compile("^[a-zA-Z0-9_/\\\\.-]+$"), byConfKey.get().getConfVal())) {
+        String regex = "^[a-zA-Z0-9_,/\\\\.-]+$";
+        if (byConfKey.isPresent()&& ReUtil.isMatch(Pattern.compile(regex), byConfKey.get().getConfVal())) {
             setStrValue(channel + Constants.UNDERLINE + suffix, byConfKey.get().getConfVal());
             result = byConfKey.get().getConfVal();
         }

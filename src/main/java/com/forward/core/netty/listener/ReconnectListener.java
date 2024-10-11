@@ -32,12 +32,12 @@ public class ReconnectListener implements GenericFutureListener {
             return;
         }
         if (future.isSuccess()) {
-            if (Constants.LOCAL_PORT_RULE_SINGLE.equals(getNettyClientPool().getClientConfig().getPort())) {
+            final Channel closeChannel = ((ChannelFuture) future).channel();
+            String finalAddress = NettyUtils.getRemoteAddress(closeChannel);
+            if (Constants.LOCAL_PORT_RULE_SINGLE.equals(getNettyClientPool().getClientConfig().getRemoteServerAndLocalPort().get(finalAddress))) {
                 log.info("特定端口：{}，无需重连", Constants.LOCAL_PORT_RULE_SINGLE);
                 return;
             }
-            final Channel closeChannel = ((ChannelFuture) future).channel();
-            String finalAddress = NettyUtils.getRemoteAddress(closeChannel);
             if (getNettyClientPool().getPoolHandlers().get(closeChannel.remoteAddress()).getActiveConnections() <= 0) {
                 if (getNettyClientPool().getWorkerGroup().isShutdown()){
                     log.info("client pool is shutdown, not reconnect");

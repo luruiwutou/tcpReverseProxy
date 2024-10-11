@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * @description:CUPY银联渠道，配置类
@@ -20,46 +21,31 @@ public class NettyClientPoolProperties {
      */
     private List<String> servers;
     /**
+     * remote_server - local_port 键值对
+     */
+    private Map<String,String> remoteServerAndLocalPort;
+    /**
      * server 配置
      */
     private String port = null;
-    /**
-     * 读超时处理时间：四分半
-     */
-    private int readIdleTimeout = 0;
-    /**
-     * 写超时处理时间
-     */
-    private int writeIdleTimeout = 0;
-
-    /**
-     * 空闲时间（MINUTES）达到idleTimeout处理 用于发送心跳消息
-     */
-    private int allIdleTimeout = 5;
+/**
+ * port : List
+ */
     /**
      * 连接池大小
      */
     private int poolSize = 10;
-    /**
-     * 银联报文头长度
-     */
-    private int cupyHeadLength = 6;
 
-    /**
-     * 工作线程数
-     */
-    private int bossThreadsCount = 100;
-    /**
-     * 工作线程数
-     */
-    private int workerThreadsCount = 100;
     /**
      * 重连次数
      */
-    private int retryTimes = 3000;
+    private int retryTimes = 10;
 
     public NettyClientPoolProperties(List<String> servers, String port) {
         this.servers = servers;
         this.port = port;
+    }
+    public NettyClientPoolProperties(Map<String,String> servers ) {
+        this.remoteServerAndLocalPort = servers;
     }
 }

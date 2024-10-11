@@ -303,7 +303,6 @@ public class ReverseProxyServer {
     private RedisService redisService = SingletonBeanFactory.getSpringBeanInstance(RedisService.class).getSingleton();
 
 
-
     private ServerBootstrap bootstrap(Function<String, List<String[]>> getConnections, ConcurrentLinkedQueue<ProxyHandler> targetProxyHandlers, FourConsumer<String, String, String, Channel> putCustomizeChannelHandler, Function<String, String> getNowEnv) {
         ServerBootstrap bootstrap = new ServerBootstrap();
         bootstrap.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class).option(ChannelOption.SO_BACKLOG, 256)
@@ -313,13 +312,9 @@ public class ReverseProxyServer {
                 .childOption(ChannelOption.SO_RCVBUF, 1048576)
                 .childOption(ChannelOption.SO_SNDBUF, 1048576)
                 .childHandler(new ChannelInitializer<SocketChannel>() {
-                    private String targetHost;
-                    private int targetPort;
                     private String remoteClientPort = "";
-                    private String localClientPort = "";
                     private volatile Map<String, Integer> connectionCounts = new ConcurrentHashMap<>();
                     private volatile List<String[]> targetConnections = new ArrayList<>();
-                    private volatile Balance<String[]> targetConnectionQueue = new QueueBalance<>();
 
                     /**
                      * din
@@ -343,23 +338,15 @@ public class ReverseProxyServer {
                         }
                         putCustomizeChannelHandler.accept(getNowEnv.apply(remoteClientPort), Constants.SERVER, remoteClientPort, ch);
                         log.info("当前代理服务器:{},\n已连接信息：{},\n远程客户端地址：{},", NettyUtils.getLocalAddress(ch), JSON.toJSONString(connectionCounts), NettyUtils.getRemoteAddress(ch));
-                        LockUtils.executeWithLock(NettyUtils.getLocalAddress(ch) + localClientPort, LockUtils.defaultExpireTime, (v) -> {
+                        LockUtils.executeWithLock(NettyUtils.getLocalAddress(ch) + remoteClientPort, LockUtils.defaultExpireTime, (v) -> {
                             if (!CollectionUtils.isEmpty(targetProxyHandlers)) {
-                                if (StringUtil.isNotEmpty(localClientPort)) {
-                                    Optional<ProxyHandler> optionalProxyHandler;
-                                    if (Constants.LOCAL_PORT_RULE_SINGLE.equals(localClientPort)) {
-                                        optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> Constants.LOCAL_PORT_RULE_SINGLE.equals(handler.getClientPort())).findAny();
-                                    } else {
-                                        optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> StringUtil.isNotEmpty(handler.getClientPort()) && handler.getClientPort().equals(localClientPort)).findAny();
-                                    }
-                                    if (optionalProxyHandler.isPresent()) {
-                                        ch.pipeline().addLast(optionalProxyHandler.get());
-                                        return;
-                                    }
+                                Optional<ProxyHandler> optionalProxyHandler = targetProxyHandlers.stream().filter(handler -> remoteClientPort.equals(handler.getRemoteClientPort())).findAny();
+                                if (optionalProxyHandler.isPresent()) {
+                                    ch.pipeline().addLast(optionalProxyHandler.get());
+                                    return;
                                 }
                             }
-
-                            ProxyHandler proxyHandler = new ProxyHandler(localClientPort, connectionCounts, handlerWorkerGroup, executorGroup, getNewTarget(), getReconnectTime(), putCustomizeTargetChannelHandler(), getTargetServers(targetConnections));
+                            ProxyHandler proxyHandler = new ProxyHandler(remoteClientPort, handlerWorkerGroup, executorGroup, getNewTarget(), getReconnectTime(), putCustomizeTargetChannelHandler(), getTargetServers(targetConnections));
                             proxyHandler.setProxyHandlers(targetProxyHandlers);
                             targetProxyHandlers.add(proxyHandler);
                             ch.pipeline().addLast(proxyHandler);
@@ -368,14 +355,14 @@ public class ReverseProxyServer {
 
                     }
 
-                    List<String> getTargetServers(List<String[]> targetConnections) {
+                    Map<String, String> getTargetServers(List<String[]> targetConnections) {
                         if (CollectionUtils.isEmpty(targetConnections)) {
-                            return Collections.EMPTY_LIST;
+                            return Collections.EMPTY_MAP;
                         }
-                        return targetConnections.stream().map(strings -> strings[1]).collect(Collectors.toList());
+                        return targetConnections.stream().collect(Collectors.toMap(strings -> strings[1], strings -> strings[0]));
                     }
 
-                    private Supplier<List<String>> getNewTarget() {
+                    private Supplier<Map<String, String>> getNewTarget() {
                         return () -> {
                             setTarget();
                             return getTargetServers(targetConnections);
@@ -408,9 +395,6 @@ public class ReverseProxyServer {
                         if (CollectionUtils.isEmpty(targetConnections)) {
                             return false;
                         }
-                        String[] strings = targetConnectionQueue.chooseOne(targetConnections);
-                        //每个server port只取第一个local client port的端口类型做标准
-                        localClientPort = targetConnections.get(0)[0];
                         return true;
                     }
                 });

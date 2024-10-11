@@ -4,7 +4,7 @@ import com.forward.core.constant.Constants;
 import com.forward.core.netty.config.NettyClientPoolProperties;
 import com.forward.core.netty.handler.ClientReturnToServerHandler;
 import com.forward.core.netty.listener.ReconnectListener;
-import com.forward.core.netty.pool.CupySendClient;
+import com.forward.core.netty.pool.NettySendClient;
 import com.forward.core.sftp.utils.StringUtil;
 import com.forward.core.tcpReverseProxy.utils.SnowFlake;
 import com.forward.core.utils.NettyUtils;
@@ -19,7 +19,6 @@ import io.netty.util.concurrent.EventExecutorGroup;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
@@ -28,31 +27,31 @@ import java.util.function.Supplier;
 @Slf4j
 @ChannelHandler.Sharable
 public class ProxyHandler extends ChannelInboundHandlerAdapter {
-    private String clientPort;
+    private String remoteClientPort;
     private ChannelGroup clientChannels;
     private EventLoopGroup workerGroup;
     private EventLoopGroup clientBoosGroup = new NioEventLoopGroup();
     private EventLoopGroup clientWorkGroup = new NioEventLoopGroup();
     private EventExecutorGroup executorGroup;
     //每一个目标服务器开了多少个channel的计数
-    private Supplier<List<String>> getNewTarget;
+    private Supplier<Map<String, String>> getNewTarget;
     private ConcurrentLinkedQueue<ProxyHandler> proxyHandlers;
     private Consumer<Channel> customizeHandlerMapCon;
-    private CupySendClient client;
+    private NettySendClient client;
     /**
      * 控制重连的监听器
      */
     private ReconnectListener clientReconnectListener;
     private volatile boolean isShutDown = false;
 
-    public ProxyHandler(String clientPort, Map<String, Integer> connectionCounts, EventLoopGroup workerGroup, EventExecutorGroup executorGroup, Supplier<List<String>> getNewTarget, Supplier<Integer> getReconnectTime, Consumer<Channel> putCustomizeTargetChannelHandler, List<String> targetServers) {
-        this.clientPort = clientPort;
+    public ProxyHandler(String remoteClientPort,  EventLoopGroup workerGroup, EventExecutorGroup executorGroup, Supplier<Map<String, String>> getNewTarget, Supplier<Integer> getReconnectTime, Consumer<Channel> putCustomizeTargetChannelHandler, Map<String, String> targetServers) {
+        this.remoteClientPort = remoteClientPort;
         this.customizeHandlerMapCon = putCustomizeTargetChannelHandler;
         this.workerGroup = workerGroup;
         this.executorGroup = executorGroup;
         this.clientChannels = new DefaultChannelGroup(this.workerGroup.next());
         this.getNewTarget = getNewTarget;
-        this.client = new CupySendClient(putCustomizeTargetChannelHandler(), new NettyClientPoolProperties(targetServers, clientPort), clientBoosGroup, clientWorkGroup);
+        this.client = new NettySendClient(putCustomizeTargetChannelHandler(), new NettyClientPoolProperties(targetServers), clientBoosGroup, clientWorkGroup);
         this.clientReconnectListener = new ReconnectListener(() -> client.getNettyClientPool());
     }
 
@@ -103,7 +102,7 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         ctx.channel().attr(Constants.TRACE_ID_KEY).set(null);
     }
 
-    private Consumer getReadConsumer(CupySendClient client) {
+    private Consumer getReadConsumer(NettySendClient client) {
         return msg -> {
             String traceId = MDC.get(Constants.TRACE_ID);
             executorGroup.submit(() -> {
@@ -175,8 +174,8 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         });
     }
 
-    public String getClientPort() {
-        return clientPort;
+    public String getRemoteClientPort() {
+        return remoteClientPort;
     }
 
     public void initiativeReconnected() {
@@ -186,6 +185,6 @@ public class ProxyHandler extends ChannelInboundHandlerAdapter {
         }
         clientWorkGroup = new NioEventLoopGroup();
         clientBoosGroup = new NioEventLoopGroup();
-        client = new CupySendClient(putCustomizeTargetChannelHandler(), new NettyClientPoolProperties(getNewTarget.get(), clientPort), clientBoosGroup, clientWorkGroup);
+        client = new NettySendClient(putCustomizeTargetChannelHandler(), new NettyClientPoolProperties(getNewTarget.get()), clientBoosGroup, clientWorkGroup);
     }
 }

@@ -6,7 +6,6 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.DefaultEventLoop;
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.util.AttributeKey;
 import io.netty.util.concurrent.Promise;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 @Slf4j
-public class CupySendClient<T> {
+public class NettySendClient<T> {
     /**
      * 线程池线程数量,对应CachedThreadPoolExecutor
      */
@@ -53,7 +52,7 @@ public class CupySendClient<T> {
 
 
 
-    public CupySendClient(Consumer<Channel> customizeHandlerMapCon, NettyClientPoolProperties clientConfig, EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
+    public NettySendClient(Consumer<Channel> customizeHandlerMapCon, NettyClientPoolProperties clientConfig, EventLoopGroup bossGroup, EventLoopGroup workerGroup) {
         this.customizeHandlerMapCon = customizeHandlerMapCon;
         this.bossGroup = bossGroup;
         this.workerGroup = workerGroup;

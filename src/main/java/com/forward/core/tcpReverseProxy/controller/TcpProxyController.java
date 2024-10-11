@@ -308,7 +308,7 @@ public class TcpProxyController {
             if (CollectionUtil.isEmpty(targetProxyHandlerForHosts.get(stringListEntry.getKey()))) {
                 continue;
             }
-            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().getTargetConnections().stream().anyMatch(array -> array[0].equals(proxyHandler.getClientPort()))).forEach(handler -> {
+            targetProxyHandlerForHosts.get(stringListEntry.getKey()).stream().filter(proxyHandler -> !stringListEntry.getValue().getTargetConnections().stream().anyMatch(array -> array[0].equals(proxyHandler.getRemoteClientPort()))).forEach(handler -> {
                 log.info("reset client pool");
                 handler.initiativeReconnected();
             });

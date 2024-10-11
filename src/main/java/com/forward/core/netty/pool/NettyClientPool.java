@@ -7,6 +7,7 @@ import com.forward.core.netty.DataBusConstant;
 import com.forward.core.netty.config.NettyClientPoolProperties;
 import com.forward.core.netty.handler.NettyChannelPoolHandler;
 import com.forward.core.sftp.utils.StringUtil;
+import com.forward.core.utils.NettyUtils;
 import com.forward.core.utils.TraceIdThreadLocal;
 import com.forward.core.utils.balance.QueueBalance;
 import io.netty.bootstrap.Bootstrap;
@@ -42,8 +43,6 @@ public class NettyClientPool {
 
     final EventLoopGroup bossGroup;
     private final EventLoopGroup workerGroup;
-    final Bootstrap strap = new Bootstrap();
-
     private Map<InetSocketAddress, FixedChannelPool> pools = new HashMap<>(4);
     private List<InetSocketAddress> addressList;
     private Map<InetSocketAddress, NettyChannelPoolHandler> poolHandlers = new HashMap<>(4);
@@ -91,16 +90,18 @@ public class NettyClientPool {
 //    }
     public void build() {
         log.info("NettyClientPool 创建......");
-        strap.group(bossGroup).channel(NioSocketChannel.class).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_REUSEADDR, true).option(ChannelOption.SO_KEEPALIVE, true);
-        putInetAddresses(clientConfig.getServers());
+//        putInetAddresses(clientConfig.getServers());
+        putInetAddresses(clientConfig.getRemoteServerAndLocalPort().keySet());
 
         poolMap = new AbstractChannelPoolMap<InetSocketAddress, FixedChannelPool>() {
             @Override
             protected FixedChannelPool newPool(InetSocketAddress key) {
+                Bootstrap strap = new Bootstrap().group(bossGroup).channel(NioSocketChannel.class).option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_REUSEADDR, true).option(ChannelOption.SO_KEEPALIVE, true);
                 NettyChannelPoolHandler nettyChannelPoolHandler = new NettyChannelPoolHandler(customizeHandlerMapCon);
                 poolHandlers.put(key, nettyChannelPoolHandler);
-                if (StringUtil.isNotEmpty(clientConfig.getPort()) && !Constants.LOCAL_PORT_RULE_SINGLE.equals(clientConfig.getPort())) {
-                    strap.localAddress(Integer.parseInt(clientConfig.getPort()));
+                String port = clientConfig.getRemoteServerAndLocalPort().get(NettyUtils.getAddress(key));
+                if (StringUtil.isNotEmpty(port) && !Constants.LOCAL_PORT_RULE_SINGLE.equals(port)) {
+                    strap.localAddress(Integer.parseInt(port));
                 }
                 return new FixedChannelPool(strap.remoteAddress(key), nettyChannelPoolHandler, clientConfig.getPoolSize() / addressList.size());
             }
@@ -162,7 +163,9 @@ public class NettyClientPool {
         } catch (ExecutionException e) {
             log.info("NettyPool GetChannel 失败 尝试重新获取");
             log.error(e.getMessage());
-            if (retry < clientConfig.getRetryTimes()) {
+            if (retry <= clientConfig.getRetryTimes()) {
+                return getChannel(serverAddress, ++retry);
+            } else if (clientConfig.getRetryTimes() < retry && retry <= clientConfig.getRetryTimes() * 2) {
                 return getChannel(serverAddress, ++retry);
             } else {
                 log.error("没有可以获取到channel连接的server，server list [{}]", addressList);
@@ -208,14 +211,14 @@ public class NettyClientPool {
      * @param addresses
      * @return void
      */
-    public void putInetAddresses(List<String> addresses) {
+    public void putInetAddresses(Collection<String> addresses) {
         addressList = new ArrayList<>(4);
         if (CollectionUtil.isEmpty(addresses)) {
             throw new RuntimeException("address列表为空");
         }
         for (String address : addresses) {
             String[] split = address.split(":");
-            if (split.length == 0) {
+            if (split.length <= 1) {
                 throw new RuntimeException("[" + address + "]不符合IP:PORT格式");
             }
             addressList.add(new InetSocketAddress(split[0], Integer.parseInt(split[1])));

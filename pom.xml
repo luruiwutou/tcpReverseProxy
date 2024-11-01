@@ -244,6 +244,26 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- ClassFinal Maven Plugin -->
+            <plugin>
+                <groupId>net.roseboy</groupId>
+                <artifactId>classfinal-maven-plugin</artifactId>
+                <version>1.2.1</version>
+                <configuration>
+                    <password>pwd</password> <!-- 加密密码，当为#时不加密 -->
+                    <packages>com.forward.core</packages> <!-- 需要加密的包名，多个用逗号分隔 -->
+                    <cfgfiles>application.yml,application-jetco.yml,application-cupy.yml,application-epsco.yml</cfgfiles> <!-- 需要加密的配置文件 -->
+                    <excludes>org.spring</excludes> <!-- 排除的类名，可为空或多个用逗号分隔 -->
+                </configuration>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>classFinal</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
